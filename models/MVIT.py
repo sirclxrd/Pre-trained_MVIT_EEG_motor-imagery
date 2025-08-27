@@ -3,6 +3,8 @@ import torch.nn as nn
 from einops.layers.torch import Rearrange
 import math
 from timm.models import create_model
+import torch.nn.functional as F
+
 
 
 class EEGSpatialAttention(nn.Module):
@@ -79,11 +81,11 @@ class EEGSpatialAttention(nn.Module):
 #da 0 a 4.028 o (22,1008) buono per fare 16x16 patch
 
 class PatchEmbedding(nn.Module):
-    def __init__(self, img_height=224, img_width = 224,patch_size=16, in_channels=3, embed_dim=768, withconv = True):
+    def __init__(self, img_height=224, img_width = 224,patch_size=16, in_channels=3, embed_dim=768, withconv = True, patch_width = 16):
         super().__init__()
 
         height, width = img_height, img_width
-        patch_height, patch_width = patch_size, patch_size #########
+        patch_height, patch_width = patch_size, patch_width #########
         self.patch_size = patch_size
         self.withconv = withconv
 
@@ -137,6 +139,7 @@ class PatchEmbedding(nn.Module):
             x = x.flatten(2)  # [B, embed_dim, N]
             x = x.transpose(1, 2)  # [B, N, embed_dim]
             x = self.norm(x)
+            #print(x.shape)
         else:
             x = self.vit_proj(x)
         return x
@@ -145,15 +148,18 @@ class PatchEmbedding(nn.Module):
 
 class ViTEncoder(nn.Module):
     def __init__(self, img_height=224, img_width=224 ,patch_size=16, in_channels=3,
-                 embed_dim=768, depth=2, num_heads=2, mlp_ratio=2.0):
+                 embed_dim=768, depth=2, num_heads=2, mlp_ratio=2.0, patch_width=16):
         super().__init__()
-        self.patch_embed = PatchEmbedding(img_height,img_width, patch_size, in_channels, embed_dim)
+        self.patch_embed = PatchEmbedding(img_height,img_width, patch_size, in_channels, embed_dim, patch_width=patch_width)
+        self.img_size = (img_height, img_width)
+        self.patch_size = patch_size
         n_patches = self.patch_embed.n_patches
         print("NPATCHES", n_patches)
 
         # [CLS] token
         self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim)) #torch.zeroes(dimensione)
         self.pos_embed = nn.Parameter(torch.zeros(1, n_patches + 1, embed_dim))
+
 
         # Transformer Encoder Layers
         encoder_layer = nn.TransformerEncoderLayer(d_model=embed_dim,
@@ -169,21 +175,62 @@ class ViTEncoder(nn.Module):
         nn.init.trunc_normal_(self.cls_token, std=0.02)
         nn.init.trunc_normal_(self.pos_embed, std=0.02)
 
-    def forward(self, x):
+    def forward(self, x, return_patches = False):
+        B, C, H, W = x.shape
         x = self.patch_embed(x)  # [B, N, D]
         B, N, D = x.shape
 
         # Aggiunta del token CLS
         cls_tokens = self.cls_token.expand(B, -1, -1)  # [B, 1, D]
         x = torch.cat((cls_tokens, x), dim=1)  # [B, N+1, D]
-        #print("X",x.shape)
-        #print("Pos",self.pos_embed.shape)
         x = x + self.pos_embed  # aggiunta positional embedding
+        grid_h = H // self.patch_size
+        grid_w = W // self.patch_size
+        #x = x + self.interpolate_pos_embed(x, self.pos_embed, (grid_h, grid_w))
         # print("After patch layer shape: ", x.shape)
         x = self.encoder(x)  # [B, N+1, D]
         x = self.norm(x)
 
-        return x[:,0] # spesso si prende x[:, 0] come rappresentazione globale (token CLS), prima riga per ogni batch
+        # spesso si prende x[:, 0] come rappresentazione globale (token CLS), prima riga per ogni batch
+        if return_patches:
+            return x[:, 1:, :]  # escludo CLS, patch embeddings
+        else:
+            patch_tokens = x[:, 1:, :]                 # [B, N, D]
+            pooled = patch_tokens.mean(dim=1)          # [B, D]
+            
+            # Opzionale: concat CLS + pooled
+            # pooled = torch.cat([x[:, 0], pooled], dim=-1)  # [B, 2D]
+            
+            return pooled
+
+    def interpolate_pos_embed(self, x, pos_embed, grid_size_hw):
+        """
+        Interpola il positional embedding per adattarsi a input di dimensione variabile (anche rettangolare).
+        - x: tensor [B, N, D]
+        - pos_embed: tensor [1, N_orig, D]
+        - grid_size_hw: tuple (H, W) dimensione griglia di patch corrente
+        """
+        B, N, D = x.shape
+        cls_token = pos_embed[:, :1]       # [1, 1, D]
+        patch_pos_embed = pos_embed[:, 1:] # [1, N-1, D]
+
+        # Dimensione originale della griglia (da pretraining)
+        num_patches = patch_pos_embed.shape[1]
+        orig_h = self.img_size[0] // self.patch_size
+        orig_w = self.img_size[1] // self.patch_size
+
+        patch_pos_embed = patch_pos_embed.reshape(1, orig_h, orig_w, D).permute(0, 3, 1, 2)
+        patch_pos_embed = F.interpolate(
+            patch_pos_embed, 
+            size=grid_size_hw, 
+            mode='bilinear', 
+            align_corners=False
+        )
+        patch_pos_embed = patch_pos_embed.permute(0, 2, 3, 1).reshape(1, grid_size_hw[0] * grid_size_hw[1], D)
+
+        # Ricompone con CLS token
+        new_pos_embed = torch.cat((cls_token, patch_pos_embed), dim=1)
+        return new_pos_embed
 
 class MultiChannelViT(nn.Module):
     def __init__(self, n_channels=22, img_height=224, img_width = 224 ,patch_size=16,
@@ -194,24 +241,43 @@ class MultiChannelViT(nn.Module):
         else:
             print("You are using classic VIT")
         if single == False:
+            #self.encoders = nn.ModuleList([
+                # ViTEncoder(img_height=img_height,
+                #            img_width = img_width,
+                #         patch_size=patch_size,
+                #         in_channels=1,
+                #         embed_dim=embed_dim)
+
+            param_sets = [
+            dict(patch_size=1,  patch_width = 336,  embed_dim=embed_dim, depth=2, num_heads=6),
+            dict(patch_size=32, patch_width = 1, embed_dim=embed_dim, depth=2, num_heads=6),
+            dict(patch_size=16, patch_width = 8, embed_dim=embed_dim, depth=2, num_heads=6),
+            ]
+
             self.encoders = nn.ModuleList([
-                ViTEncoder(img_height=img_height,
-                           img_width = img_width,
-                        patch_size=patch_size,
-                        in_channels=1,
-                        embed_dim=embed_dim)
-                for _ in range(n_channels)
+                ViTEncoder(
+                    img_height=img_height,
+                    img_width=img_width,
+                    in_channels=n_channels,
+                    **params
+                )
+                for params in param_sets
             ])
-            
+            self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim)) #torch.zeroes(dimensione)
+            self.pos_embed = nn.Parameter(torch.zeros(1, 1, embed_dim))
+            nn.init.trunc_normal_(self.cls_token, std=0.02)
+            nn.init.trunc_normal_(self.pos_embed, std=0.02)
 
-            # classifier per output concatenato
-            self.concat_classifier = nn.Sequential(
-                nn.Linear(embed_dim * n_channels, 512),
-                nn.ReLU(),
-                nn.Dropout(0.3),
-                nn.Linear(512, num_classes)
-            )
 
+            #     ViTEncoder(img_height=img_height,
+            #                img_width = img_width,
+            #             patch_size=patch_size,
+            #             in_channels=1,
+            #             embed_dim=embed_dim,
+            #             depth=depth,
+            #             num_heads = num_heads)
+            #     for _ in range(math.ceil(n_channels)) #22/3 lo arrotonda come se fosse 24/3
+            # ])
         else:
             self.encoder = ViTEncoder(img_height=img_height,
                         img_width = img_width,
@@ -220,58 +286,100 @@ class MultiChannelViT(nn.Module):
                         embed_dim=embed_dim,
                         depth=depth,
                         num_heads=num_heads)
+        
+        self.first = embed_dim * math.ceil(n_channels)
+        # classifier per output concatenato
+        self.concat_classifier = nn.Sequential(
+            nn.Linear(embed_dim*3, 1024),
+            nn.ReLU(),
+            nn.Dropout(0.4),
+            nn.Linear(1024, 256),
+            nn.ReLU(),
+            nn.Dropout(0.4),
+            nn.Linear(256, num_classes)
+        )
 
-            # classifier per output singolo
-            self.single_classifier = nn.Sequential(
-                nn.Linear(embed_dim, 512),
-                nn.ReLU(),
-                nn.Dropout(0.5), ######
-                nn.Linear(512, num_classes)
-            )
-            
-
+        # classifier per output singolo
+        self.single_classifier = nn.Sequential(
+            nn.Linear(embed_dim, 512),
+            nn.ReLU(),
+            nn.Dropout(0.5), ######
+            nn.Linear(512, num_classes)
+        )
         self.single = single
         #self.eeg_attention = EEGSpatialAttention(embed_dim, num_heads, 0.3)
-        # last_transformer = nn.TransformerEncoderLayer(d_model=embed_dim,
-        #                                            nhead=num_heads,
-        #                                            dim_feedforward=int(embed_dim * 4), #dim_feedforward è quanto aumenta d_model nel feedforward, qua fa da 768 a 4*768 e viceversa
-        #                                            activation='gelu',
-        #                                            batch_first=True,
-        #                                            dropout=0.2
-        #                                            )
-        # self.last_encoder = nn.TransformerEncoder(last_transformer, num_layers=depth)
-        # self.norm = nn.LayerNorm(embed_dim)
+        last_transformer = nn.TransformerEncoderLayer(d_model=embed_dim,
+                                                   nhead=num_heads,
+                                                   dim_feedforward=int(embed_dim * 4), #dim_feedforward è quanto aumenta d_model nel feedforward, qua fa da 768 a 4*768 e viceversa
+                                                   activation='gelu',
+                                                   batch_first=True,
+                                                   dropout=0.2
+                                                   )
+        self.encoder = nn.TransformerEncoder(last_transformer, num_layers=depth)
+        self.norm = nn.LayerNorm(embed_dim)
 
-    def forward(self, x):
+    def forward(self, x, group = False):
         # in questo modo devo dare in input tutti gli spettrogrammi concatenati sulla profondità
         # x: [B, C, H, W] = [B, 22, 32, 32]
 
         # MVIT
-        if self.single == False:
+        if self.single == False and group == False:
             tokens = []
             channels = []
             for i, encoder in enumerate(self.encoders):
-                channel_i = x[:, i:i+1, :, :]  # [B, 1, H, W]
-                token = encoder(channel_i)     # [B, D]
+                #channel_i = x[:, i:i+1, :, :]  # [B, 1, H, W]
+                token = encoder.patch_embed(x)     # [B, D]
                 
                 #nel caso voglio controllare gli output dei singoli canali
                 #c_out = self.single_classifier(token)
                 #channels.append(c_out)
 
                 tokens.append(token)
-            concat_token = torch.cat(tokens, dim=-1)  # [B, 22*D]
-            out = self.concat_classifier(concat_token)
+            x = torch.cat(tokens, dim=1)  # [B, 22*D]
+
+            B, N, D = x.shape
+            # Aggiunta del token CLS
+            cls_tokens = self.cls_token.expand(B, -1, -1)  # [B, 1, D]
+            x = torch.cat((cls_tokens, x), dim=1)  # [B, N+1, D]
+            pos_embed = self.pos_embed.expand(B, -1, -1)
+            x = x + self.pos_embed  # aggiunta positional embedding
+            #x = x + self.interpolate_pos_embed(x, self.pos_embed, (grid_h, grid_w))
+            # print("After patch layer shape: ", x.shape)
+            x = self.encoder(x)  # [B, N+1, D]
+            x = self.norm(x)
+
+            patch_tokens = x[:, 1:, :]                 # [B, N, D]
+            pooled = patch_tokens.mean(dim=1) 
+
+            out = self.single_classifier(pooled)
 
             # tokens = torch.stack(tokens, dim=1)
             # attn_output = self.eeg_attention(tokens)
             # out = self.single_classifier(attn_output)
-
-            # tokens = torch.stack(tokens, dim=1)  # [B, 22, D]
-            # attn_output = self.last_encoder(tokens)         # [B, D]
-            # attn_output = attn_output.mean(dim=1)  # [B, D]
-            # attn_output = self.norm(attn_output)
-            # out = self.single_classifier(attn_output)
         # SINGLE VIT
+        elif self.single == False and group == True:
+            tokens = []
+            channels = []
+            n_channels = x.shape[1]
+            step = 3
+            for i, encoder in enumerate(self.encoders):
+                start_idx = i * step
+                end_idx = start_idx + step
+                
+                # Prendo i canali da start_idx a end_idx
+                channel_i = x[:, start_idx:end_idx, :, :]  # [B, fino a 3, H, W]
+                
+                # Se ultimi canali < 3, replico l'ultimo canale
+                if channel_i.shape[1] < step:
+                    last_channel = channel_i[:, -1:, :, :]
+                    reps = step - channel_i.shape[1]
+                    extra = last_channel.repeat(1, reps, 1, 1)
+                    channel_i = torch.cat([channel_i, extra], dim=1) 
+                
+                token = encoder(channel_i)  # encoder si aspetta input con 3 canali
+                tokens.append(token)
+            concat_token = torch.cat(tokens, dim=-1)  # concatena su dimensione embed
+            out = self.concat_classifier(concat_token)
         else:
             single_token = self.encoder(x)
             # print(single_token.shape)
@@ -307,11 +415,14 @@ class MultiChannelViTSelfSupervised(nn.Module):
                         num_heads=num_heads)
             
         # classifier per output singolo
+        hidden_dim = 384
+        out_dim = 192
         self.single_classifier = nn.Sequential(
-            nn.Linear(embed_dim, 512),
-            nn.ReLU(),
-            nn.Dropout(0.5), ######
-            nn.Linear(512, 256)
+            nn.Linear(embed_dim, hidden_dim),
+            nn.GELU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.GELU(),
+            nn.Linear(hidden_dim, out_dim)
         )
         self.single = single
 
@@ -321,9 +432,100 @@ class MultiChannelViTSelfSupervised(nn.Module):
 
         single_token = self.encoder(x)
         # print(single_token.shape)
-        out = self.single_classifier(single_token)      # [B, num_classes]
+        out = self.single_classifier(single_token)      
+        out = nn.functional.normalize(out, dim=-1)
+
 
         return out
+
+class RelativeLocalizationLoss(nn.Module):
+    def __init__(self, embed_dim, grid_shape, hidden_dim=128):
+        super().__init__()
+        self.mlp = nn.Sequential(
+            nn.Linear(2 * embed_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, 2)
+        )
+        self.grid_height, self.grid_width = grid_shape  # (2, 63)
+        self.l1_loss = nn.L1Loss()
+
+    def forward(self, patch_embeddings):
+        # patch_embeddings: [B, N, D] where N = H*W
+        B, N, D = patch_embeddings.shape
+        H, W = self.grid_height, self.grid_width
+        assert N == H * W, f"Expected {H*W} patches, got {N}"
+
+        # Precompute coordinate grid: (N, 2)
+        coords = torch.tensor([
+            (i, j) for i in range(H) for j in range(W)
+        ], device=patch_embeddings.device).float()
+
+        losses = []
+        for b in range(B):
+            emb = patch_embeddings[b]  # [N, D]
+
+            # Sample m distinct pairs
+            m = min(100, N*(N-1)//2)
+            idx1 = torch.randint(0, N, (m,), device=emb.device)
+            idx2 = torch.randint(0, N, (m,), device=emb.device)
+
+            # Ensure idx1 ≠ idx2
+            mask = idx1 != idx2
+            idx1, idx2 = idx1[mask], idx2[mask]
+            if len(idx1) == 0: continue  # skip if all equal
+            e1 = emb[idx1]  # [m', D]
+            e2 = emb[idx2]  # [m', D]
+
+            coord1 = coords[idx1]  # [m', 2]
+            coord2 = coords[idx2]  # [m', 2]
+
+            # Compute normalized distance in [0, 1]
+            tu = torch.abs(coord1[:, 0] - coord2[:, 0]) / H
+            tv = torch.abs(coord1[:, 1] - coord2[:, 1]) / W
+            target = torch.stack([tu, tv], dim=1)  # [m', 2]
+
+            inp = torch.cat([e1, e2], dim=1)  # [m', 2*D]
+            pred = self.mlp(inp)  # [m', 2]
+
+            loss = self.l1_loss(pred, target)
+            losses.append(loss)
+
+        return torch.stack(losses).mean() if losses else torch.tensor(0.0, device=patch_embeddings.device)
+
+class ViTEncoderPretrained(nn.Module):
+    def __init__(self, img_height, img_width, patch_size, in_channels, embed_dim,
+                 depth=12, num_heads=12, pretrained=True):
+        super().__init__()
+        
+        # Crea un ViT pre-addestrato su ImageNet
+        model = create_model(
+            'vit_small_patch16_224',
+            pretrained=pretrained,
+            img_size=(img_height, img_width),
+            in_chans=in_channels,
+        )
+        
+        # Se in_channels ≠ 3, inizializza il primo layer con pesi adattati
+        if pretrained and in_channels != 3:
+            old_conv = create_model('vit_small_patch16_224', pretrained=True).patch_embed.proj
+            new_conv = model.patch_embed.proj
+            with torch.no_grad():
+                if in_channels == 1:
+                    mean_weight = old_conv.weight.mean(dim=1, keepdim=True)
+                    new_conv.weight.copy_(mean_weight)
+                else:
+                    repeat = (in_channels // 3) + 1
+                    expanded = old_conv.weight.repeat(1, repeat, 1, 1)[:, :in_channels, :, :]
+                    new_conv.weight.copy_(expanded)
+            model.patch_embed.proj = new_conv
+        
+        # Rimuove la classification head, lasciando solo il backbone
+        model.head = nn.Identity()
+        
+        self.vit = model
+
+    def forward(self, x):
+        return self.vit(x)  # restituisce il token CLS
 
 # model = MultiChannelViT(n_channels=22, img_height = 32, img_width = 1008, patch_size=16, embed_dim=768, num_classes=4, single=False)
 # criterion = nn.CrossEntropyLoss() #contiene già una softmax
