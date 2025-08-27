@@ -118,13 +118,15 @@ class PatchEmbedding(nn.Module):
         #proiezione come nel paper originale con flatten
         # (h ph) specificando ph e pw signfica fare h = (h / ph)
         # alla fine ottengo [b, n_patches, dim_patch]
-        self.vit_proj = nn.Sequential(
-            Rearrange('b c (h ph) (w pw) -> b (h w) (ph pw c)', 
-                      ph=patch_height, pw=patch_width),
-            nn.LayerNorm(patch_dim),
-            nn.Linear(patch_dim, embed_dim),
-            nn.LayerNorm(embed_dim)
-        )
+
+        # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! HO COMMENTATO QUESTO PER RISPARMIARE MEMORIA
+        # self.vit_proj = nn.Sequential(
+        #     Rearrange('b c (h ph) (w pw) -> b (h w) (ph pw c)', 
+        #               ph=patch_height, pw=patch_width),
+        #     nn.LayerNorm(patch_dim),
+        #     nn.Linear(patch_dim, embed_dim),
+        #     nn.LayerNorm(embed_dim)
+        # )
 
 
     def forward(self, x):
