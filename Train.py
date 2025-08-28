@@ -383,7 +383,7 @@ if __name__ == '__main__':
                 checkpoint = torch.load(load_path + "/" + subject + ".pth", map_location=device)
             model.load_state_dict(checkpoint['model_state_dict'])
             #optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-            scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+            #scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
             model.to(device)
             #last_epoch = checkpoint['epoch'] + 1  # Per riprendere
             # import copy
