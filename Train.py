@@ -378,7 +378,7 @@ if __name__ == '__main__':
         # per caricare il modello, RICORDA DI CONTROLLARE ANCHE SE SAVE_MODEL E' LO STESSO
         if config["train"]["load"] == True:
             if config["run"]["val"] == True:
-                checkpoint = torch.load(load_path + "/val_M" + subject + ".pth", map_location=device)
+                checkpoint = torch.load(load_path + "/val_" + subject + ".pth", map_location=device)
             else:
                 checkpoint = torch.load(load_path + "/" + subject + ".pth", map_location=device)
             model.load_state_dict(checkpoint['model_state_dict'])
