@@ -336,8 +336,6 @@ if __name__ == '__main__':
         last_epoch = checkpoint['epoch'] + 1  # Per riprendere
         
 
-    save_interval = 50 * 60
-    last_save_time = time.time()
     val_loss_history = []
     
     for i in range(EPOCHS):
