@@ -249,9 +249,9 @@ class MultiChannelViT(nn.Module):
                 #         embed_dim=embed_dim)
 
             param_sets = [
-            dict(patch_size=1,  patch_width = 336,  embed_dim=embed_dim, depth=2, num_heads=6),
-            dict(patch_size=32, patch_width = 1, embed_dim=embed_dim, depth=2, num_heads=6),
-            dict(patch_size=16, patch_width = 8, embed_dim=embed_dim, depth=2, num_heads=6),
+            dict(patch_size=1,  patch_width = 336,  embed_dim=embed_dim, depth=depth, num_heads=num_heads),
+            dict(patch_size=32, patch_width = 1, embed_dim=embed_dim, depth=depth, num_heads=num_heads),
+            dict(patch_size=16, patch_width = 8, embed_dim=embed_dim, depth=depth, num_heads=num_heads)
             ]
 
             self.encoders = nn.ModuleList([
@@ -290,7 +290,7 @@ class MultiChannelViT(nn.Module):
         self.first = embed_dim * math.ceil(n_channels)
         # classifier per output concatenato
         self.concat_classifier = nn.Sequential(
-            nn.Linear(embed_dim*3, 1024),
+            nn.Linear(embed_dim*len(param_sets), 1024),
             nn.ReLU(),
             nn.Dropout(0.4),
             nn.Linear(1024, 256),
@@ -310,10 +310,10 @@ class MultiChannelViT(nn.Module):
         #self.eeg_attention = EEGSpatialAttention(embed_dim, num_heads, 0.3)
         last_transformer = nn.TransformerEncoderLayer(d_model=embed_dim,
                                                    nhead=num_heads,
-                                                   dim_feedforward=int(embed_dim * 4), #dim_feedforward è quanto aumenta d_model nel feedforward, qua fa da 768 a 4*768 e viceversa
+                                                   dim_feedforward=int(embed_dim * 2), #dim_feedforward è quanto aumenta d_model nel feedforward, qua fa da 768 a 4*768 e viceversa
                                                    activation='gelu',
                                                    batch_first=True,
-                                                   dropout=0.2
+                                                   dropout=0.5
                                                    )
         self.encoder = nn.TransformerEncoder(last_transformer, num_layers=depth)
         self.norm = nn.LayerNorm(embed_dim)
