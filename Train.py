@@ -227,19 +227,6 @@ def _init_weights(m):
         nn.init.constant_(m.bias, 0)
         nn.init.constant_(m.weight, 1.0)
 
-def conv_like_init(m):
-    if isinstance(m, nn.Linear):
-        # Peso piccolo e centrato
-        nn.init.normal_(m.weight, mean=0.0, std=0.02)
-        if m.bias is not None:
-            nn.init.zeros_(m.bias)
-    elif isinstance(m, nn.LayerNorm):
-        nn.init.ones_(m.weight)
-        nn.init.zeros_(m.bias)
-    elif isinstance(m, nn.Conv2d):
-        nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
-        if m.bias is not None:
-            nn.init.zeros_(m.bias)
 
 
 if __name__ == '__main__':
