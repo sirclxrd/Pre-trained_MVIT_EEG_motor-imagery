@@ -19,8 +19,8 @@ import math
 from torch.optim import AdamW
 from torch.cuda.amp import autocast, GradScaler
 
-VAL_EPOCH = 2
-EARLY_STOP = 10
+VAL_EPOCH = 5
+EARLY_STOP = 15
 TOTAL_SUBJECTS = 9
 SUBJECT = 1
 LAMBDA = 0.7
@@ -92,10 +92,10 @@ def training_epoch(model, train_loader, test_loader, val_loader ,criterion, opti
         inputs = random_augmentation(inputs)
 
         optimizer.zero_grad()
-        #outputs, out2 = model(inputs)
-        #loss = (1-LAMBDA) * criterion(outputs, labels) + LAMBDA*criterion(out2, labels)
-        outputs = model(inputs)
-        loss = criterion(outputs, labels)
+        outputs, out2 = model(inputs)
+        loss = (1-LAMBDA) * criterion(outputs, labels) + LAMBDA*criterion(out2, labels)
+        # outputs = model(inputs)
+        # loss = criterion(outputs, labels)
         
         if torch.isnan(outputs).any():
             print("NaN negli output del modello!")
@@ -137,10 +137,10 @@ def training_epoch(model, train_loader, test_loader, val_loader ,criterion, opti
                 #labels = labels.to(device).long()
                 labels = labels.to(device).squeeze().long()
 
-                # outputs, out2 = model(inputs)
-                # loss = (1-LAMBDA) * criterion(outputs, labels) + LAMBDA*criterion(out2, labels)
-                outputs = model(inputs)
-                loss = criterion(outputs, labels)
+                outputs, out2 = model(inputs)
+                loss = (1-LAMBDA) * criterion(outputs, labels) + LAMBDA*criterion(out2, labels)
+                # outputs = model(inputs)
+                # loss = criterion(outputs, labels)
 
                 val_loss += loss.item()
                 predicted = outputs.argmax(dim=1)# cerca il massimo sulle colonne
@@ -180,13 +180,13 @@ def test_model(model, test_loader, criterion, log_file = "log.txt"):
 
             #tempo per un batch di campioni
             start_time = time.time()
-            #outputs, out2 = model(inputs)
-            outputs = model(inputs)
+            outputs, out2 = model(inputs)
+            #outputs = model(inputs)
             end_time = time.time()
 
-            #loss = (1-LAMBDA) * criterion(outputs, labels) + LAMBDA*criterion(out2, labels)
+            loss = (1-LAMBDA) * criterion(outputs, labels) + LAMBDA*criterion(out2, labels)
 
-            loss = criterion(outputs, labels)
+            #loss = criterion(outputs, labels)
             running_loss += loss.item()
 
 
@@ -226,20 +226,6 @@ def _init_weights(m):
     elif isinstance(m, nn.LayerNorm):
         nn.init.constant_(m.bias, 0)
         nn.init.constant_(m.weight, 1.0)
-
-def conv_like_init(m):
-    if isinstance(m, nn.Linear):
-        # Peso piccolo e centrato
-        nn.init.normal_(m.weight, mean=0.0, std=0.02)
-        if m.bias is not None:
-            nn.init.zeros_(m.bias)
-    elif isinstance(m, nn.LayerNorm):
-        nn.init.ones_(m.weight)
-        nn.init.zeros_(m.bias)
-    elif isinstance(m, nn.Conv2d):
-        nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
-        if m.bias is not None:
-            nn.init.zeros_(m.bias)
 
 
 if __name__ == '__main__':
@@ -392,7 +378,7 @@ if __name__ == '__main__':
         # per caricare il modello, RICORDA DI CONTROLLARE ANCHE SE SAVE_MODEL E' LO STESSO
         if config["train"]["load"] == True:
             if config["run"]["val"] == True:
-                checkpoint = torch.load(load_path + "/val_" + subject + ".pth", map_location=device)
+                checkpoint = torch.load(load_path + "/val_M" + subject + ".pth", map_location=device)
             else:
                 checkpoint = torch.load(load_path + "/" + subject + ".pth", map_location=device)
             model.load_state_dict(checkpoint['model_state_dict'])
