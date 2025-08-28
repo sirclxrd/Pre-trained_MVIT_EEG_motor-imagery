@@ -410,8 +410,8 @@ if __name__ == '__main__':
         _, test_acc = test_model(model, test_loader=test_loader, criterion=criterion, log_file = log_path)
         total_test_acc.append(test_acc)
 
-        if config["run"]["save"] == False:
-            os.remove(load_path + "/" + "model" + ".pth")
+        # if config["run"]["save"] == False:
+        #     os.remove(load_path + "/" + "model" + ".pth")
     print("The mean accuracy is: ",np.mean(total_test_acc))
     txt = f"The mean accuracy is: {np.mean(total_test_acc)}"
     append_to_log_file(log_path, txt)
