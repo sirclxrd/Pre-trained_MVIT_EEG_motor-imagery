@@ -356,7 +356,7 @@ if __name__ == '__main__':
                 if epoch_val_accuracy > val_best_acc + 1e-3:
                     val_best_acc = epoch_val_accuracy
 
-                save_model(val_loss, i, model, optimizer, scheduler, save_path, config["run"]["scheduler"] )
+                save_model(val_loss, i, model, optimizer, scheduler,"1" ,save_path, config["run"]["scheduler"] )
             else:
                 early_stop += 1
 
