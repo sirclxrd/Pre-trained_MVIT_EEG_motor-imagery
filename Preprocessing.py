@@ -579,9 +579,8 @@ def compute_morlet_spectrogram(features, sfreq, freqs=np.linspace(LOW_FREQ, HIGH
     """
     features: ndarray (n_epochs, n_channels, n_times)
     sfreq: frequenza di campionamento (Hz), per BCIC IV 2a è 250 Hz
-    freqs: array di frequenze su cui viene calcolata la wavelet, il mio segnale è [4,40]Hz quindi ne faccio 32 per coprirlo tutto
-    ed avere immagini 32x1000
-    n_cycles: indica quanto è lunga l'onda, compromesso tempo frequenza. 
+    freqs: array di frequenze su cui è centrata la wavelet
+    n_cycles: indica quanto è lunga l'onda wavelet, compromesso tempo frequenza. 
     Ogni onda wavelet ha una determinata frequenza, n_cycles definisce il numero di cicli e quindi quanto è larga
     Piu' è larga più è precisa in frequenza ma meno in tempo, io la faccio diventare più larga man mano che crescono le frequenze
     """
