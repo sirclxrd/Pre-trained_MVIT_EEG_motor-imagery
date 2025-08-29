@@ -390,9 +390,10 @@ if __name__ == '__main__':
         test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
         # per caricare il modello, RICORDA DI CONTROLLARE ANCHE SE SAVE_MODEL E' LO STESSO
+        # model_1.pth è quello di pretrain
         if config["train"]["load"] == True:
             if config["run"]["val"] == True:
-                checkpoint = torch.load(load_path + "/model_" + "1" + ".pth", map_location=device)
+                checkpoint = torch.load(load_path + "/val_" + subject + ".pth", map_location=device)
             else:
                 checkpoint = torch.load(load_path + "/" + subject + ".pth", map_location=device)
             model.load_state_dict(checkpoint['model_state_dict'])
