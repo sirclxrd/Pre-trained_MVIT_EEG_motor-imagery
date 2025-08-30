@@ -133,24 +133,29 @@ def append_to_log_file(filepath, text):
         f.write(text + "\n")  
 
 # togliere top1 che è per l'ensamble
+#val_ sono quelli fatti fino ad ora, faccio v_
 def load_only_model(load_path, subject, model, val):
     if val == False:
         checkpoint = torch.load(load_path + "/" + subject + ".pth", map_location='cuda')
     else:
-        checkpoint = torch.load(load_path + "/val_" + subject + ".pth", map_location='cuda')
+        checkpoint = torch.load(load_path + "/v_" + subject + ".pth", map_location='cuda')
         #checkpoint = torch.load(load_path + "/val_M" + subject + ".pth", map_location='cuda')
     model.load_state_dict(checkpoint['model_state_dict'])
     return model
 
-def save_model(val_loss, i, model, optimizer, scheduler, subject, save_path, sched_on ):
+def save_model(val_loss, i, model, optimizer, scheduler, subject, save_path, sched_on, epoch_loss, epoch_acc, epoch_val_loss, epoch_val_acc ):
     if sched_on:
         torch.save({
                     'loss': val_loss,
                     'epoch': i,
                     'model_state_dict': model.state_dict(),
                     'optimizer_state_dict': optimizer.state_dict(),
-                    'scheduler_state_dict': scheduler.state_dict()
-        }, save_path + "/val_" +subject + ".pth")
+                    'scheduler_state_dict': scheduler.state_dict(),
+                    'epoch_loss': epoch_loss,
+                    'epoch_acc': epoch_acc,
+                    'epoch_val_loss': epoch_val_loss,
+                    'epoch_val_acc': epoch_val_acc
+        }, save_path + "/v_" +subject + ".pth")
     else:
         torch.save({
                     'loss': val_loss,
