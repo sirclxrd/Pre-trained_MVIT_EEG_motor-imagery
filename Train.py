@@ -19,7 +19,7 @@ import math
 from torch.optim import AdamW
 from torch.cuda.amp import autocast, GradScaler
 
-VAL_EPOCH = 2
+VAL_EPOCH = 1
 EARLY_STOP = 10
 TOTAL_SUBJECTS = 9
 SUBJECT = 1
@@ -101,7 +101,7 @@ def training_epoch(model, train_loader, test_loader, val_loader ,criterion, opti
             print("NaN negli output del modello!")
             break
         loss.backward()
-        total_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
+        total_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=2.0)
         txt = f"Gradient norm: {total_norm.item()}"
         append_to_log_file(log_file, txt)
         optimizer.step()
@@ -315,7 +315,7 @@ if __name__ == '__main__':
             )
 
         if config["run"]["scheduler"]:
-            scheduler = get_epoch_cosine_schedule_with_warmup(optimizer, warmup_epochs=0.2*EPOCHS, total_epochs=EPOCHS)
+            scheduler = get_epoch_cosine_schedule_with_warmup(optimizer, warmup_epochs=0.05*EPOCHS, total_epochs=EPOCHS)
             #scheduler = CosineAnnealingLR(optimizer, T_max=EPOCHS, eta_min=5e-4)
         else:
             scheduler = None
