@@ -227,19 +227,6 @@ def _init_weights(m):
         nn.init.constant_(m.bias, 0)
         nn.init.constant_(m.weight, 1.0)
 
-def conv_like_init(m):
-    if isinstance(m, nn.Linear):
-        # Peso piccolo e centrato
-        nn.init.normal_(m.weight, mean=0.0, std=0.02)
-        if m.bias is not None:
-            nn.init.zeros_(m.bias)
-    elif isinstance(m, nn.LayerNorm):
-        nn.init.ones_(m.weight)
-        nn.init.zeros_(m.bias)
-    elif isinstance(m, nn.Conv2d):
-        nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
-        if m.bias is not None:
-            nn.init.zeros_(m.bias)
 
 
 if __name__ == '__main__':
@@ -328,7 +315,7 @@ if __name__ == '__main__':
             )
 
         if config["run"]["scheduler"]:
-            scheduler = get_epoch_cosine_schedule_with_warmup(optimizer, warmup_epochs=0.1*EPOCHS, total_epochs=EPOCHS)
+            scheduler = get_epoch_cosine_schedule_with_warmup(optimizer, warmup_epochs=0.2*EPOCHS, total_epochs=EPOCHS)
             #scheduler = CosineAnnealingLR(optimizer, T_max=EPOCHS, eta_min=5e-4)
         else:
             scheduler = None
@@ -393,7 +380,7 @@ if __name__ == '__main__':
         # model_1.pth è quello di pretrain
         if config["train"]["load"] == True:
             if config["run"]["val"] == True:
-                checkpoint = torch.load(load_path + "/val_" + subject + ".pth", map_location=device)
+                checkpoint = torch.load(load_path + "/model_" + "1" + ".pth", map_location=device)
             else:
                 checkpoint = torch.load(load_path + "/" + subject + ".pth", map_location=device)
             model.load_state_dict(checkpoint['model_state_dict'])
@@ -401,6 +388,12 @@ if __name__ == '__main__':
             #scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
             model.to(device)
             #last_epoch = checkpoint['epoch'] + 1  # Per riprendere
+            if 'epoch_loss' in checkpoint:
+                epoch_loss= checkpoint['epoch_loss']
+                epoch_acc= checkpoint['epoch_acc']
+                epoch_val_loss= checkpoint['epoch_val_loss']
+                epoch_val_acc= checkpoint['epoch_val_acc']
+
             # import copy
             # model.encoder = copy.deepcopy(model_test.encoder)
             # for param in model.parameters():
@@ -420,7 +413,7 @@ if __name__ == '__main__':
                     if epoch_val_accuracy >= val_best_acc:
                         val_best_acc = epoch_val_accuracy
                         
-                    save_model(val_loss, i, model, optimizer, scheduler, subject, save_path, config["run"]["scheduler"] )
+                    save_model(val_loss, i, model, optimizer, scheduler, subject, save_path, config["run"]["scheduler"], epoch_loss, epoch_acc, epoch_val_loss, epoch_val_acc)
                 else:
                     early_stop += 1
 
