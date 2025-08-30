@@ -315,7 +315,7 @@ if __name__ == '__main__':
             )
 
         if config["run"]["scheduler"]:
-            scheduler = get_epoch_cosine_schedule_with_warmup(optimizer, warmup_epochs=0.1*EPOCHS, total_epochs=EPOCHS)
+            scheduler = get_epoch_cosine_schedule_with_warmup(optimizer, warmup_epochs=0.2*EPOCHS, total_epochs=EPOCHS)
             #scheduler = CosineAnnealingLR(optimizer, T_max=EPOCHS, eta_min=5e-4)
         else:
             scheduler = None
@@ -386,6 +386,11 @@ if __name__ == '__main__':
             #optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
             scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
             model.to(device)
+            if 'epoch_loss' in checkpoint:
+                epoch_loss= checkpoint['epoch_loss']
+                epoch_acc= checkpoint['epoch_acc']
+                epoch_val_loss= checkpoint['epoch_val_loss']
+                epoch_val_acc= checkpoint['epoch_val_acc']
             #last_epoch = checkpoint['epoch'] + 1  # Per riprendere
             # import copy
             # model.encoder = copy.deepcopy(model_test.encoder)
@@ -406,7 +411,7 @@ if __name__ == '__main__':
                     if epoch_val_accuracy >= val_best_acc:
                         val_best_acc = epoch_val_accuracy
                         
-                    save_model(val_loss, i, model, optimizer, scheduler, subject, save_path, config["run"]["scheduler"] )
+                    save_model(val_loss, i, model, optimizer, scheduler, subject, save_path, config["run"]["scheduler"], epoch_loss, epoch_acc, epoch_val_loss, epoch_val_acc )
                 else:
                     early_stop += 1
 
