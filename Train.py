@@ -20,7 +20,7 @@ from torch.optim import AdamW
 from torch.cuda.amp import autocast, GradScaler
 
 VAL_EPOCH = 2
-EARLY_STOP = 10
+EARLY_STOP = 20
 TOTAL_SUBJECTS = 9
 SUBJECT = 1
 LAMBDA = 0.7
