@@ -3,6 +3,9 @@ import torch.nn as nn
 from einops.layers.torch import Rearrange
 import math
 from timm.models import create_model
+from transformers import ViTModel, ViTConfig
+import torch.nn.functional as F
+
 
 
 class EEGSpatialAttention(nn.Module):
@@ -197,11 +200,7 @@ class MultiChannelViT(nn.Module):
             print("You are using classic VIT")
         if single == False:
             self.encoders = nn.ModuleList([
-                ViTEncoder(img_height=img_height,
-                           img_width = img_width,
-                        patch_size=patch_size,
-                        in_channels=1,
-                        embed_dim=embed_dim)
+                ViTEncoderEEG()
                 for _ in range(n_channels)
             ])
             
@@ -282,50 +281,51 @@ class MultiChannelViT(nn.Module):
         return out
 
 
-class MultiChannelViTSelfSupervised(nn.Module):
-    def __init__(self, n_channels=22, img_height=224, img_width = 224 ,patch_size=16,
-                 embed_dim=768, num_classes=4, single = False, depth = 2, num_heads = 2):
+class ViTEncoderEEG(nn.Module):
+    def __init__(self, pretrained=True):
         super().__init__()
-        if single == False:
-            print("You are using MVIT")
-        else:
-            print("You are using classic VIT")
-        if single == False:
-            self.encoders = nn.ModuleList([
-                ViTEncoder(img_height=img_height,
-                           img_width = img_width,
-                        patch_size=patch_size,
-                        in_channels=1,
-                        embed_dim=embed_dim)
-                for _ in range(n_channels)
-            ])
-        else:
-            self.encoder = ViTEncoder(img_height=img_height,
-                        img_width = img_width,
-                        patch_size=patch_size,
-                        in_channels=n_channels,
-                        embed_dim=embed_dim,
-                        depth=depth,
-                        num_heads=num_heads)
-            
-        # classifier per output singolo
-        self.single_classifier = nn.Sequential(
-            nn.Linear(embed_dim, 512),
-            nn.ReLU(),
-            nn.Dropout(0.5), ######
-            nn.Linear(512, 256)
-        )
-        self.single = single
+        
+        # 1. Creo config identica a vit-base
+        config = ViTConfig.from_pretrained("WinKawaks/vit-tiny-patch16-224")
+        config.num_channels = 1  # input a 1 canale
+        
+        # 2. Creo il modello da config
+        self.vit = ViTModel(config)
+        
+        if pretrained:
+            # Carico il modello pretrained per copiare i pesi
+            pretrained_model = ViTModel.from_pretrained("WinKawaks/vit-tiny-patch16-224")
+            with torch.no_grad():
+                # media dei pesi RGB del patch embedding
+                w = pretrained_model.embeddings.patch_embeddings.projection.weight  # [hidden,3,P,P]
+                self.vit.embeddings.patch_embeddings.projection.weight[:] = w.mean(dim=1, keepdim=True)
+                # copia bias se esiste
+                if pretrained_model.embeddings.patch_embeddings.projection.bias is not None:
+                    self.vit.embeddings.patch_embeddings.projection.bias[:] = pretrained_model.embeddings.patch_embeddings.projection.bias
 
     def forward(self, x):
-        # in questo modo devo dare in input tutti gli spettrogrammi concatenati sulla profondità
-        # x: [B, C, H, W] = [B, 22, 32, 32]
+        """
+        x: [B, 1, 32, 1008]
+        """
+        # Padding per rendere "quasi quadrato"
+        B, C, H, W = x.shape
+        target_size = 224
+        pad_vert = max(0, target_size - H)
+        pad_top = pad_vert // 2
+        pad_bottom = pad_vert - pad_top
+        
+        pad_horiz = max(0, target_size - W)
+        pad_left = pad_horiz // 2
+        pad_right = pad_horiz - pad_left
+        
+        x = F.pad(x, (pad_left, pad_right, pad_top, pad_bottom))
+        x = F.interpolate(x, size=(224, 224), mode="bilinear", align_corners=False)
+        
+        # Passaggio nel ViT
+        outputs = self.vit(pixel_values=x)
+        # CLS token come embedding globale
+        return outputs.last_hidden_state[:,0]  # [B, hidden_dim]
 
-        single_token = self.encoder(x)
-        # print(single_token.shape)
-        out = self.single_classifier(single_token)      # [B, num_classes]
-
-        return out
 
 # model = MultiChannelViT(n_channels=22, img_height = 32, img_width = 1008, patch_size=16, embed_dim=768, num_classes=4, single=False)
 # criterion = nn.CrossEntropyLoss() #contiene già una softmax

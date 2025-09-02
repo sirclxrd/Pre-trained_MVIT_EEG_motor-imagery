@@ -3,7 +3,7 @@ import numpy as np
 from torch.utils.data import Dataset, DataLoader,Subset
 from torch.optim.lr_scheduler import LambdaLR, CosineAnnealingLR
 import torch
-from models.MVIT import MultiChannelViT, MultiChannelViTSelfSupervised
+from models.MVIT import MultiChannelViT
 from models.pret_MVIT import pret_MVIT
 import torch.nn as nn
 import time
