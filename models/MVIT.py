@@ -309,16 +309,6 @@ class ViTEncoderEEG(nn.Module):
         """
         # Padding per rendere "quasi quadrato"
         B, C, H, W = x.shape
-        target_size = 224
-        pad_vert = max(0, target_size - H)
-        pad_top = pad_vert // 2
-        pad_bottom = pad_vert - pad_top
-        
-        pad_horiz = max(0, target_size - W)
-        pad_left = pad_horiz // 2
-        pad_right = pad_horiz - pad_left
-        
-        x = F.pad(x, (pad_left, pad_right, pad_top, pad_bottom))
         x = F.interpolate(x, size=(224, 224), mode="bilinear", align_corners=False)
         
         # Passaggio nel ViT
