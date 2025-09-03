@@ -15,13 +15,15 @@ from sklearn.cluster import KMeans
 from scipy.stats import pearsonr
 import random
 import scipy
+import numpy as np
+from scipy.linalg import fractional_matrix_power
 
 
 
 
-LOW_FREQ = 8
-HIGH_FREQ = 30
-N_FREQ = 32
+LOW_FREQ = 4
+HIGH_FREQ = 38
+N_FREQ = 224
 
 class EEGSpectrogramDataset(Dataset):
     def __init__(self, features, labels):
@@ -34,18 +36,52 @@ class EEGSpectrogramDataset(Dataset):
     def __getitem__(self, idx):
         return self.features[idx], self.labels[idx]
 
+def euclidean_alignment(eeg_data: np.ndarray, R_mean_inv_sqrt= None) -> np.ndarray:
+    """
+    Applica la Euclidean Alignment (EA) ai dati EEG.
+    Allinea i dati di test e train in uno stesso spazio euclideo
+    ovvero rende la matrice di covarianza unitaria dopo al trasformazione.
+    Devo farmi restituire la matrice R_mean dai dati di train
+    poi successivamente usarla per quelli di test
+    """
+    n_trials, n_channels, n_samples = eeg_data.shape
+    
+    if R_mean_inv_sqrt is None:
+        # Calcolo matrice media delle covarianze
+        R_mean = np.zeros((n_channels, n_channels))
+        for i in range(n_trials):
+            X = eeg_data[i]
+            R = X @ X.T / n_samples
+            R_mean += R
+        R_mean /= n_trials
+        R_mean_inv_sqrt = fractional_matrix_power(R_mean, -0.5)
+    
+    # Trasformo i dati (train o test)
+    aligned_data = np.zeros_like(eeg_data, dtype=np.float32)
+    for i in range(n_trials):
+        aligned_data[i] = R_mean_inv_sqrt @ eeg_data[i]
 
-#Normalizzazione per canale
-def channel_normalization(features):
-    n_trials, n_channels, n_times = features.shape
-    reshaped = features.transpose(1, 0, 2).reshape(n_channels, -1).T  # shape: (n_trials * n_times, n_channels)
+    return aligned_data, R_mean_inv_sqrt
 
-    scaler = StandardScaler()
-    normalized = scaler.fit_transform(reshaped)
 
-    # Ricomponi i dati normalizzati nella forma originale
-    features_norm = normalized.T.reshape(n_channels, n_trials, n_times).transpose(1, 0, 2)
-    return features_norm
+def trial_based_normalization(eeg_data: np.ndarray) -> np.ndarray:
+    """
+    Normalizza i dati EEG su base trial nell'intervallo [-1, 1].
+    In questo modo mantengo la proporzione interna tra canali
+    I canali sono scalati in modo uniforme e quindi restano confrontabili.
+    """
+    normalized_data = np.zeros_like(eeg_data, dtype=np.float32)
+
+    for i in range(eeg_data.shape[0]):  # per ogni trial
+        trial = eeg_data[i]
+        max_val = np.max(np.abs(trial))  # massimo in valore assoluto
+        if max_val == 0:
+            normalized_data[i] = trial  # evito divisione per zero
+        else:
+            normalized_data[i] = trial / max_val
+
+    return normalized_data
+
 
 #Normalizzazione per tutti i dati
 #Con flatten i dati vengono concatenati
@@ -421,7 +457,7 @@ def read_data(path, tmin=2, tmax=6.028, is_test=False, augment = False, filter =
 
     return features,labels
 
-def read_data_2b(subject_id, base_path, tmin=0, tmax=4.540, augment=False, filter="Butter", is_test = False):
+def read_data_2b(subject_id, base_path, tmin=0, tmax=4, augment=False, filter="Butter", is_test = False):
     all_features = []
     all_labels = []
     subject_id = subject_id[1:3]
@@ -436,27 +472,11 @@ def read_data_2b(subject_id, base_path, tmin=0, tmax=4.540, augment=False, filte
             # Leggi segnale
             raw = mne.io.read_raw_gdf(file_path, preload=True)
 
-            if filter == "Butter":
-                raw.filter(
-                    l_freq=8, h_freq=30,
-                    method='iir',
-                    iir_params=dict(order=5, ftype='butter'),
-                    phase='zero'
-                )
-                LOW_FREQ = 8
-                HIGH_FREQ = 30
-            elif filter == "Cheby":
-                raw.filter(
-                    l_freq=4, h_freq=40,
-                    method='iir',
-                    iir_params=dict(order=6, ftype='cheby2', rs=40),
-                    phase='zero'
-                )
-                LOW_FREQ = 4
-                HIGH_FREQ = 40
-            else:
-                LOW_FREQ = 0.5
-                HIGH_FREQ = 100
+            raw.filter(
+            l_freq=4, h_freq=38,
+            fir_design='firwin',
+            fir_window='blackman'    
+            )
 
             raw.set_eeg_reference()
             events, event_dict = mne.events_from_annotations(raw)
@@ -470,7 +490,7 @@ def read_data_2b(subject_id, base_path, tmin=0, tmax=4.540, augment=False, filte
             mat_path = os.path.join(base_path, "true_labels", f"B{subject_id}0{session}E.mat")
             true = loadmat(mat_path)
             labels = true['classlabel'] - 1  # [1, 2] → [0, 1]
-            features = channel_normalization(features)
+            features = trial_based_normalization(features)
             all_features.append(features)
             all_labels.append(labels)
         features = np.concatenate(all_features, axis=0)
@@ -480,10 +500,6 @@ def read_data_2b(subject_id, base_path, tmin=0, tmax=4.540, augment=False, filte
         print("Test dataset done")    
     else:
         for session in ['1', '2', '3']:
-            if session == '2':
-                event_id = 3
-            else:
-                event_id = 9
             print("subject_id:", subject_id)
             file_name = f"B{subject_id}0{session}T.gdf"
             file_path = os.path.join(base_path, "Train" ,file_name)
@@ -492,27 +508,11 @@ def read_data_2b(subject_id, base_path, tmin=0, tmax=4.540, augment=False, filte
             raw = mne.io.read_raw_gdf(file_path, preload=True)
             #raw.drop_channels(['EOG:ch01', 'EOG:ch02', 'EOG:ch03'])
 
-            if filter == "Butter":
-                raw.filter(
-                    l_freq=8, h_freq=30,
-                    method='iir',
-                    iir_params=dict(order=5, ftype='butter'),
-                    phase='zero'
-                )
-                LOW_FREQ = 8
-                HIGH_FREQ = 30
-            elif filter == "Cheby":
-                raw.filter(
-                    l_freq=4, h_freq=40,
-                    method='iir',
-                    iir_params=dict(order=6, ftype='cheby2', rs=40),
-                    phase='zero'
-                )
-                LOW_FREQ = 4
-                HIGH_FREQ = 40
-            else:
-                LOW_FREQ = 0.5
-                HIGH_FREQ = 100
+            raw.filter(
+            l_freq=4, h_freq=38,
+            fir_design='firwin',
+            fir_window='blackman'    
+            )
 
             #events, _ = mne.events_from_annotations(raw)
 
@@ -531,7 +531,7 @@ def read_data_2b(subject_id, base_path, tmin=0, tmax=4.540, augment=False, filte
             labels = true['classlabel'] - 1  # [1, 2] → [0, 1]
             # print(labels)
 
-            features = channel_normalization(features)
+            features = trial_based_normalization(features)
             all_features.append(features)
             all_labels.append(labels)# Concatena tutte le sessioni
         features = np.concatenate(all_features, axis=0)
@@ -612,6 +612,8 @@ def prepare_dataloaders(subject_id='A09', root='./BciCompetitionIv2a/Train', onl
                 x_train, y_train, is_real = read_data_2b(subject_id, root_train, augment=augment, filter=filter, is_test = False)
             else:
                 x_train, y_train = read_data_2b(subject_id, root_train, augment=augment, filter=filter, is_test = False)
+                x_train,R = euclidean_alignment(x_train)
+
         x_train, mean, std = compute_morlet_spectrogram(x_train, sfreq=250)
         print(x_train.shape)
 
@@ -622,6 +624,7 @@ def prepare_dataloaders(subject_id='A09', root='./BciCompetitionIv2a/Train', onl
         else:
             root_test = './BciCompetitionIv2b'
             x_test, y_test = read_data_2b(subject_id, root_test, augment=augment, filter=filter, is_test = True)
+            x_test, R = euclidean_alignment(x_test, R)
         x_test, mean, std = compute_morlet_spectrogram(x_test, sfreq=250, mean=mean, std=std)
         #print(x_test.shape)
 

@@ -3,7 +3,7 @@ import numpy as np
 from torch.utils.data import Dataset, DataLoader,Subset
 from torch.optim.lr_scheduler import LambdaLR, CosineAnnealingLR
 import torch
-from models.MVIT import MultiChannelViT
+from models.MVIT import TSFF
 from models.pret_MVIT import pret_MVIT
 import torch.nn as nn
 import time
@@ -89,7 +89,7 @@ def training_epoch(model, train_loader, test_loader, val_loader ,criterion, opti
 
         inputs = inputs.to(device).float()
         labels = labels.to(device).squeeze().long()
-        inputs = random_augmentation(inputs)
+        #inputs = random_augmentation(inputs)
 
         optimizer.zero_grad()
         #outputs, out2 = model(inputs)
@@ -262,7 +262,7 @@ if __name__ == '__main__':
 
         if config["run"]["pret"] == False:
         #    model_test = MultiChannelViTSelfSupervised(**config["model"])
-            model = MultiChannelViT(**config["model"])
+            model = TSFF()
         #     reloc_loss_fn = RelativeLocalizationLoss(
         #     embed_dim=768,
         #     grid_shape=(2, 63),  # perché 32x1008 con patch 16
@@ -302,13 +302,9 @@ if __name__ == '__main__':
                           single=config["model"]["single"])
         model=model.to(device=device)
         criterion = nn.CrossEntropyLoss() #contiene già una softmax ###########
-        # for param in model.parameters():
-        #     param.requires_grad = False
-        # for param in model.encoder.parameters():
-        #     param.requires_grad = True       
-        # for param in model.single_classifier.parameters():
-        #     param.requires_grad = True
-        optimizer = torch.optim.Adam(
+
+        #!!!!!!!!!!!!!!!!!!!!!!!!!
+        optimizer = torch.optim.AdamW(
             model.parameters(),
             lr=config["train"]["lr"],
             weight_decay = 0.01        
