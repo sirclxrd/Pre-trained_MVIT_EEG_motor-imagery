@@ -200,8 +200,12 @@ class MultiChannelViT(nn.Module):
             print("You are using classic VIT")
         if single == False:
             self.encoders = nn.ModuleList([
-                ViTEncoderEEG()
-                for _ in range(n_channels)
+                ViTEncoder(img_height=img_height,
+                           img_width = img_width,
+                        patch_size=patch_size,
+                        in_channels=1,
+                        embed_dim=embed_dim)
+                        for _ in range(n_channels)
             ])
             
 

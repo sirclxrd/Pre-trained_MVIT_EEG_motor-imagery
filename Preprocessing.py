@@ -19,9 +19,9 @@ import scipy
 
 
 
-LOW_FREQ = 8
-HIGH_FREQ = 30
-N_FREQ = 32
+LOW_FREQ = 4
+HIGH_FREQ = 52
+N_FREQ = 1
 
 class EEGSpectrogramDataset(Dataset):
     def __init__(self, features, labels):
@@ -575,7 +575,7 @@ def block_reduce_sum(arr, block_size_freq, block_size_time):
     return arr.sum(axis=(3, 5))  # somma su blocchi freq e tempo
 
 
-def compute_morlet_spectrogram(features, sfreq, freqs=np.linspace(LOW_FREQ, HIGH_FREQ, N_FREQ), n_cycles=7, mean = None, std = None):
+def compute_morlet_spectrogram(features, sfreq, freqs=np.arange(LOW_FREQ, HIGH_FREQ, N_FREQ), n_cycles=7, mean = None, std = None):
     """
     features: ndarray (n_epochs, n_channels, n_times)
     sfreq: frequenza di campionamento (Hz), per BCIC IV 2a è 250 Hz
@@ -585,7 +585,7 @@ def compute_morlet_spectrogram(features, sfreq, freqs=np.linspace(LOW_FREQ, HIGH
     Piu' è larga più è precisa in frequenza ma meno in tempo, io la faccio diventare più larga man mano che crescono le frequenze
     """
     wvlts = tfr_array_morlet(features, sfreq=sfreq, freqs=freqs,
-                             n_cycles=7, output='power', decim=1, n_jobs=1)
+                             n_cycles=10, output='power', n_jobs=1)
     wvlts = np.log1p(wvlts)
     
     mean = np.mean(wvlts, axis=(0), keepdims=True)
