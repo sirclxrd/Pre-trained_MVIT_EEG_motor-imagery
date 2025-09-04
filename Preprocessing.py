@@ -15,6 +15,8 @@ from sklearn.cluster import KMeans
 from scipy.stats import pearsonr
 import random
 import scipy
+import torch.nn.functional as F
+
 
 
 
@@ -368,7 +370,7 @@ def read_data(path, tmin=2, tmax=6.028, is_test=False, augment = False, filter =
 
     #raw=bandpass_filter_raw(raw)
 
-    raw.set_eeg_reference()
+    #raw.set_eeg_reference()
     events=mne.events_from_annotations(raw)
     if is_test:
         # Carico tutte le epoche disponibili (senza specificare event_id)
@@ -458,7 +460,7 @@ def read_data_2b(subject_id, base_path, tmin=0, tmax=4.540, augment=False, filte
                 LOW_FREQ = 0.5
                 HIGH_FREQ = 100
 
-            raw.set_eeg_reference()
+            #raw.set_eeg_reference()
             events, event_dict = mne.events_from_annotations(raw)
             event_id = {'Unknown': event_dict['783']}
             selected_events = events[np.isin(events[:, 2], list(event_id.values()))]              
@@ -586,13 +588,25 @@ def compute_morlet_spectrogram(features, sfreq, freqs=np.linspace(LOW_FREQ, HIGH
     """
     wvlts = tfr_array_morlet(features, sfreq=sfreq, freqs=freqs,
                              n_cycles=7, output='power', n_jobs=1)
-    wvlts = np.log1p(wvlts)
-    
-    mean = np.mean(wvlts, axis=(0), keepdims=True)
-    std = np.std(wvlts, axis=(0), keepdims=True)
-    
+
+    if mean is None or std is None:
+        mean = np.mean(wvlts, axis=(0), keepdims=True)
+        std  = np.std(wvlts, axis=(0), keepdims=True)
     wvlts = (wvlts - mean) / (std + 1e-10)
-    return wvlts, mean, std
+    
+    wvlts = torch.tensor(wvlts, dtype=torch.float32)
+
+    # Ridimensiona a 224x224 (bilinear interpolation)
+    # wvlts = F.interpolate(
+    #     wvlts, size=(224, 224), mode='bilinear', align_corners=False
+    # )
+    # wvlts = np.log1p(wvlts)
+    
+    # mean = np.mean(wvlts, axis=(0), keepdims=True)
+    # std = np.std(wvlts, axis=(0), keepdims=True)
+    
+    # wvlts = (wvlts - mean) / (std + 1e-10)
+    return wvlts.numpy(), mean, std
 
 def prepare_dataloaders(subject_id='A09', root='./BciCompetitionIv2a/Train', onlytest = False, augment = False, filter = "Butter", BCI = "2a"):
     train_path = os.path.join(root, f'{subject_id}T.gdf')

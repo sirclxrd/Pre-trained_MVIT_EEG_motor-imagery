@@ -91,7 +91,7 @@ for n in range(9):
     subject_test = f"A0{n+1}"
     batch_size = 32
     #load_path = "Single_checkpoints/16_2_2/val_" + subject + ".pth"
-    load_path = save_path + "/val_M" +subject_test + ".pth"
+    load_path = save_path + "/val_" +subject_test + ".pth"
     model = MultiChannelViT(**config["model"])
     #model = pret_MVIT(n_channels=22, img_height = 64, img_width = 1008, patch_size=PATCH_SIZE, embed_dim=768, num_classes=4, single=SINGLE)
 
