@@ -98,7 +98,7 @@ for n in range(9):
     model = model.to(device=device)
     criterion = nn.CrossEntropyLoss() #contiene già una softmax
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
-    test_dataset = prepare_dataloaders(subject_id = subject_test, augment = config["run"]["augment"], filter=config["train"]["filter"], BCI = config["run"]["dataset"], onlytest=True)
+    _, test_dataset = prepare_dataloaders(subject_id = subject_test, augment = False, filter=config["train"]["filter"], BCI = config["run"]["dataset"])
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
     checkpoint = torch.load(load_path)
     model.load_state_dict(checkpoint['model_state_dict'])

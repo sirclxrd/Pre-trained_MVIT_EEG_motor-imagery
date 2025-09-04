@@ -308,10 +308,8 @@ if __name__ == '__main__':
         #     param.requires_grad = True       
         # for param in model.single_classifier.parameters():
         #     param.requires_grad = True
-        optimizer = torch.optim.Adam(
-            model.parameters(),
-            lr=config["train"]["lr"],
-            weight_decay = 0.01        
+        optimizer = torch.optim.AdamW(
+            model.parameters()      
             )
 
         if config["run"]["scheduler"]:

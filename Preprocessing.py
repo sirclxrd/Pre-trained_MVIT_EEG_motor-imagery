@@ -589,24 +589,24 @@ def compute_morlet_spectrogram(features, sfreq, freqs=np.linspace(LOW_FREQ, HIGH
     wvlts = tfr_array_morlet(features, sfreq=sfreq, freqs=freqs,
                              n_cycles=7, output='power', n_jobs=1)
 
-    if mean is None or std is None:
-        mean = np.mean(wvlts, axis=(0), keepdims=True)
-        std  = np.std(wvlts, axis=(0), keepdims=True)
-    wvlts = (wvlts - mean) / (std + 1e-10)
+    # if mean is None or std is None:
+    #     mean = np.mean(wvlts, axis=(0), keepdims=True)
+    #     std  = np.std(wvlts, axis=(0), keepdims=True)
+    # wvlts = (wvlts - mean) / (std + 1e-10)
     
-    wvlts = torch.tensor(wvlts, dtype=torch.float32)
+    # wvlts = torch.tensor(wvlts, dtype=torch.float32)
 
     # Ridimensiona a 224x224 (bilinear interpolation)
     # wvlts = F.interpolate(
     #     wvlts, size=(224, 224), mode='bilinear', align_corners=False
     # )
-    # wvlts = np.log1p(wvlts)
+    wvlts = np.log1p(wvlts)
     
-    # mean = np.mean(wvlts, axis=(0), keepdims=True)
-    # std = np.std(wvlts, axis=(0), keepdims=True)
+    mean = np.mean(wvlts, axis=(0), keepdims=True)
+    std = np.std(wvlts, axis=(0), keepdims=True)
     
-    # wvlts = (wvlts - mean) / (std + 1e-10)
-    return wvlts.numpy(), mean, std
+    wvlts = (wvlts - mean) / (std + 1e-10)
+    return wvlts, mean, std
 
 def prepare_dataloaders(subject_id='A09', root='./BciCompetitionIv2a/Train', onlytest = False, augment = False, filter = "Butter", BCI = "2a"):
     train_path = os.path.join(root, f'{subject_id}T.gdf')
