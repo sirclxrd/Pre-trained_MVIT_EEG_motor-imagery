@@ -28,50 +28,8 @@ LAMBDA = 0.7
 
 device = 'cuda'
 
-def frequency_masking(spectrogram, F=15):
-    f = spectrogram.shape[-2]
-    f0 = random.randint(0, f - F)
-    spectrogram[:, :, f0:f0+F, :] = 0
-    return spectrogram
-
-def time_masking(spectrogram, T=30):
-    t = spectrogram.shape[-1]
-    t0 = random.randint(0, t - T)
-    spectrogram[:, :, :, t0:t0+T] = 0
-    return spectrogram
-
-def channel_dropout(spectrogram, drop_prob=0.2):
-    """Azzeramento casuale di alcuni canali"""
-    B, C, H, W = spectrogram.shape
-    mask = torch.rand(C) > drop_prob
-    mask = mask.float().view(1, C, 1, 1)
-    mask = mask.to(device='cuda')
-    return spectrogram * mask
-
-def random_augmentation(spectrogram):
-    """
-    Applica casualmente una di queste 3 augmentations oppure nessuna:
-    - additive_noise
-    - frequency_masking
-    - time_masking
-    
-    Args:
-        spectrogram: tensor [B, C, H, W]
-        
-    Returns:
-        spectrogram trasformato
-    """
-    augmentations = [
-        lambda x: frequency_masking(x, F=15),
-        lambda x: time_masking(x, T=500),
-        lambda x: frequency_masking(time_masking(x, T = 200)),        
-        lambda x: x
-    ]
-    aug_func = random.choice(augmentations)
-    return aug_func(spectrogram)
 
     
-
 
 def training_epoch(model, train_loader, test_loader, val_loader ,criterion, optimizer,scheduler, epoch = 0, log_file = "log.txt"):
     running_loss = 0.0
@@ -81,19 +39,11 @@ def training_epoch(model, train_loader, test_loader, val_loader ,criterion, opti
     model.train()
 
     for inputs, labels in train_loader:
-        #inputs = inputs.squeeze(2)
-        if len(inputs.shape) == 3:
-            print(inputs.shape)
-            inputs = inputs.unsqueeze(1)
-            print(inputs.shape)
 
         inputs = inputs.to(device).float()
         labels = labels.to(device).squeeze().long()
-        #inputs = random_augmentation(inputs)
 
         optimizer.zero_grad()
-        #outputs, out2 = model(inputs)
-        #loss = (1-LAMBDA) * criterion(outputs, labels) + LAMBDA*criterion(out2, labels)
         outputs = model(inputs)
         loss = criterion(outputs, labels)
         
@@ -129,16 +79,10 @@ def training_epoch(model, train_loader, test_loader, val_loader ,criterion, opti
         model.eval()
         with torch.no_grad():
             for inputs, labels in val_loader:
-                if len(inputs.shape) == 3:
-                    print(inputs.shape)
-                    inputs = inputs.unsqueeze(1)
-                    print(inputs.shape)
                 inputs = inputs.to(device).float()
                 #labels = labels.to(device).long()
                 labels = labels.to(device).squeeze().long()
 
-                # outputs, out2 = model(inputs)
-                # loss = (1-LAMBDA) * criterion(outputs, labels) + LAMBDA*criterion(out2, labels)
                 outputs = model(inputs)
                 loss = criterion(outputs, labels)
 
@@ -261,53 +205,15 @@ if __name__ == '__main__':
         stopped = False
 
         if config["run"]["pret"] == False:
-        #    model_test = MultiChannelViTSelfSupervised(**config["model"])
             model = TSFF()
-        #     reloc_loss_fn = RelativeLocalizationLoss(
-        #     embed_dim=768,
-        #     grid_shape=(2, 63),  # perché 32x1008 con patch 16
-        # )   
-            #reloc_loss_fn.to(device)
-            # from timm.models.vision_transformer import VisionTransformer
 
-            # model = VisionTransformer(
-            # img_size=(32, 1008),     # <-- la tua dimensione
-            # patch_size=16,
-            # in_chans=22,
-            # num_classes=4,
-            # embed_dim=768,
-            # depth=2,
-            # num_heads=2,
-            # mlp_ratio=4,
-            # drop_rate = 0.5,
-            # attn_drop_rate = 0.5,
-            # drop_path_rate = 0.5,
-            # weight_init='jax_nlhb'
-            # )
-            
-            # from timm.models import create_model
-            # model = create_model(
-            #     'deit_base_distilled_patch16_224',
-            #     pretrained=False,  # carichiamo i pesi manualmente dopo
-            #     img_size=(32, 1008),
-            #     in_chans=22,
-            #     num_classes=4
-            # )
-            # _init_weights(model)
-            #conv_like_init(model)
-        else:
-            model = pret_MVIT(n_channels=config["model"]["n_channels"], img_height = config["model"]["img_height"], 
-                          img_width = config["model"]["img_width"], patch_size=config["model"]["patch_size"], 
-                          embed_dim=config["model"]["embed_dim"], num_classes=config["model"]["num_classes"], 
-                          single=config["model"]["single"])
         model=model.to(device=device)
         criterion = nn.CrossEntropyLoss() #contiene già una softmax ###########
 
         #!!!!!!!!!!!!!!!!!!!!!!!!!
         optimizer = torch.optim.AdamW(
-            model.parameters(),
-            lr=config["train"]["lr"],
-            weight_decay = 0.01        
+            model.parameters()            
+            #weight_decay = 0.01        
             )
 
         if config["run"]["scheduler"]:
@@ -389,13 +295,6 @@ if __name__ == '__main__':
                 epoch_acc= checkpoint['epoch_acc']
                 epoch_val_loss= checkpoint['epoch_val_loss']
                 epoch_val_acc= checkpoint['epoch_val_acc']
-
-            # import copy
-            # model.encoder = copy.deepcopy(model_test.encoder)
-            # for param in model.parameters():
-            #     param.requires_grad = False  
-            # for param in model.single_classifier.parameters():
-            #     param.requires_grad = True
     
         for i in range(EPOCHS):
             if val_loader is not None and (i+1) % VAL_EPOCH == 0:

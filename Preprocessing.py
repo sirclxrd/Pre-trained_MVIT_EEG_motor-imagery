@@ -17,6 +17,8 @@ import random
 import scipy
 import numpy as np
 from scipy.linalg import fractional_matrix_power
+import torch.nn.functional as F
+
 
 
 
@@ -48,7 +50,7 @@ def euclidean_alignment(eeg_data: np.ndarray, R_mean_inv_sqrt= None) -> np.ndarr
     
     if R_mean_inv_sqrt is None:
         # Calcolo matrice media delle covarianze
-        R_mean = np.zeros((n_channels, n_channels))
+        R_mean = np.zeros((n_channels, n_channels), dtype=np.float64)
         for i in range(n_trials):
             X = eeg_data[i]
             R = X @ X.T / n_samples
@@ -59,7 +61,7 @@ def euclidean_alignment(eeg_data: np.ndarray, R_mean_inv_sqrt= None) -> np.ndarr
     # Trasformo i dati (train o test)
     aligned_data = np.zeros_like(eeg_data, dtype=np.float32)
     for i in range(n_trials):
-        aligned_data[i] = R_mean_inv_sqrt @ eeg_data[i]
+        aligned_data[i] = (R_mean_inv_sqrt @ eeg_data[i]).astype(np.float32)
 
     return aligned_data, R_mean_inv_sqrt
 
@@ -478,7 +480,7 @@ def read_data_2b(subject_id, base_path, tmin=0, tmax=4, augment=False, filter="B
             fir_window='blackman'    
             )
 
-            raw.set_eeg_reference()
+            #raw.set_eeg_reference() ?????????????????????????????
             events, event_dict = mne.events_from_annotations(raw)
             event_id = {'Unknown': event_dict['783']}
             selected_events = events[np.isin(events[:, 2], list(event_id.values()))]              
@@ -536,13 +538,6 @@ def read_data_2b(subject_id, base_path, tmin=0, tmax=4, augment=False, filter="B
             all_labels.append(labels)# Concatena tutte le sessioni
         features = np.concatenate(all_features, axis=0)
         labels = np.concatenate(all_labels, axis=0)
-        if augment:
-            features, labels, is_real = segment_and_rec_total_augmentation(features, labels, dataset="2b")
-            print("Train Features shape: ",features.shape)
-            print("Train Labels shape: ",labels.shape)
-            print("Train dataset done")
-            return features, labels, is_real
-
         print("Train Features shape: ",features.shape)
         print("Train Labels shape: ",labels.shape)
         print("Train dataset done")
@@ -586,13 +581,69 @@ def compute_morlet_spectrogram(features, sfreq, freqs=np.linspace(LOW_FREQ, HIGH
     """
     wvlts = tfr_array_morlet(features, sfreq=sfreq, freqs=freqs,
                              n_cycles=7, output='power', n_jobs=1)
-    wvlts = np.log1p(wvlts)
-    
-    mean = np.mean(wvlts, axis=(0), keepdims=True)
-    std = np.std(wvlts, axis=(0), keepdims=True)
-    
+
+    if mean is None or std is None:
+        mean = np.mean(wvlts, axis=(0, 1, 2), keepdims=True)
+        std  = np.std(wvlts, axis=(0, 1, 2), keepdims=True)
     wvlts = (wvlts - mean) / (std + 1e-10)
-    return wvlts, mean, std
+    
+    wvlts = torch.tensor(wvlts, dtype=torch.float32)
+
+    # Ridimensiona a 224x224 (bilinear interpolation)
+    wvlts = F.interpolate(
+        wvlts, size=(224, 224), mode='bilinear', align_corners=False
+    )
+    # wvlts = np.log1p(wvlts)
+    
+    # mean = np.mean(wvlts, axis=(0), keepdims=True)
+    # std = np.std(wvlts, axis=(0), keepdims=True)
+    
+    # wvlts = (wvlts - mean) / (std + 1e-10)
+    return wvlts.numpy(), mean, std
+
+def debug_data_stats(x_train, y_train, x_test, y_test, R_mean_inv_sqrt=None):
+    import numpy as np
+
+    # Converti in numpy se sono tensori
+    if not isinstance(x_train, np.ndarray):
+        x_train = x_train.numpy()
+    if not isinstance(x_test, np.ndarray):
+        x_test = x_test.numpy()
+    
+    print("=== SHAPES ===")
+    print("Train:", x_train.shape, "Test:", x_test.shape)
+    print("Train labels:", y_train.shape, "Test labels:", y_test.shape)
+
+    print("\n=== VALUE RANGE ===")
+    print("Train min/max:", x_train.min(), x_train.max())
+    print("Test min/max:", x_test.min(), x_test.max())
+    print("Train mean/std:", x_train.mean(), x_train.std())
+    print("Test mean/std:", x_test.mean(), x_test.std())
+
+    # Per canale
+    n_channels = x_train.shape[1]
+    for ch in range(n_channels):
+        print(f"Channel {ch}: TRAIN mean={x_train[:,ch].mean():.4f}, TEST mean={x_test[:,ch].mean():.4f}, "
+              f"std={x_train[:,ch].std():.4f}/{x_test[:,ch].std():.4f}")
+
+    # Controlla Euclidean Alignment
+    if R_mean_inv_sqrt is not None:
+        print("\n=== EUCLIDEAN ALIGNMENT ===")
+        # Covarianza media primo trial
+        cov_train = np.cov(x_train[0].reshape(n_channels, -1))
+        cov_test  = np.cov(x_test[0].reshape(n_channels, -1))
+        print("Covariance (first train trial):\n", cov_train)
+        print("Covariance (first test trial):\n", cov_test)
+        print("R_mean_inv_sqrt used:\n", R_mean_inv_sqrt)
+
+    # Dummy prediction
+    from sklearn.metrics import accuracy_score
+    dummy_pred_train = (x_train.mean(axis=(1,2,3)) > 0).astype(int)
+    dummy_pred_test  = (x_test.mean(axis=(1,2,3)) > 0).astype(int)
+    print("\n=== DUMMY ACCURACY ===")
+    print("Train dummy acc:", accuracy_score(y_train, dummy_pred_train))
+    print("Test dummy acc :", accuracy_score(y_test, dummy_pred_test))
+
 
 def prepare_dataloaders(subject_id='A09', root='./BciCompetitionIv2a/Train', onlytest = False, augment = False, filter = "Butter", BCI = "2a"):
     train_path = os.path.join(root, f'{subject_id}T.gdf')
@@ -626,6 +677,8 @@ def prepare_dataloaders(subject_id='A09', root='./BciCompetitionIv2a/Train', onl
             x_test, y_test = read_data_2b(subject_id, root_test, augment=augment, filter=filter, is_test = True)
             x_test, R = euclidean_alignment(x_test, R)
         x_test, mean, std = compute_morlet_spectrogram(x_test, sfreq=250, mean=mean, std=std)
+
+        debug_data_stats(x_train, y_train, x_test, y_test, R_mean_inv_sqrt=R)   
         #print(x_test.shape)
 
         # DATASET

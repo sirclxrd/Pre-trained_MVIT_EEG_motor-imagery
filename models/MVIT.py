@@ -3,7 +3,7 @@ import torch.nn as nn
 
 class TSFF(nn.Module):
 
-    def __init__(self, img_weight=0.02, width=224, length=1001, num_classes=2, samples=1001, channels=3, avepool=25):
+    def __init__(self, img_weight=0.02, width=224, length=224, num_classes=2, samples=1001, channels=3, avepool=25):
         super(TSFF, self).__init__()
         self.channel_weight = nn.Parameter(torch.randn(9, 1, channels), requires_grad=True)
         nn.init.xavier_uniform_(self.channel_weight.data)

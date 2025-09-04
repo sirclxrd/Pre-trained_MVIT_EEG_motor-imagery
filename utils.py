@@ -162,7 +162,7 @@ def save_model(val_loss, i, model, optimizer, scheduler, subject, save_path, sch
                     'epoch': i,
                     'model_state_dict': model.state_dict(),
                     'optimizer_state_dict': optimizer.state_dict()
-        }, save_path + "/val_" +subject + ".pth")
+        }, save_path + "/v_" +subject + ".pth")
 
         
 
