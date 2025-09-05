@@ -16,6 +16,7 @@ from scipy.stats import pearsonr
 import random
 import scipy
 import torch.nn.functional as F
+from scipy.linalg import fractional_matrix_power
 
 
 
@@ -35,6 +36,33 @@ class EEGSpectrogramDataset(Dataset):
 
     def __getitem__(self, idx):
         return self.features[idx], self.labels[idx]
+
+def euclidean_alignment(eeg_data: np.ndarray, R_mean_inv_sqrt= None) -> np.ndarray:
+    """
+    Applica la Euclidean Alignment (EA) ai dati EEG.
+    Allinea i dati di test e train in uno stesso spazio euclideo
+    ovvero rende la matrice di covarianza unitaria dopo al trasformazione.
+    Devo farmi restituire la matrice R_mean dai dati di train
+    poi successivamente usarla per quelli di test
+    """
+    n_trials, n_channels, n_samples = eeg_data.shape
+    
+    if R_mean_inv_sqrt is None:
+        # Calcolo matrice media delle covarianze
+        R_mean = np.zeros((n_channels, n_channels), dtype=np.float64)
+        for i in range(n_trials):
+            X = eeg_data[i]
+            R = X @ X.T / n_samples
+            R_mean += R
+        R_mean /= n_trials
+        R_mean_inv_sqrt = fractional_matrix_power(R_mean, -0.5)
+    
+    # Trasformo i dati (train o test)
+    aligned_data = np.zeros_like(eeg_data, dtype=np.float32)
+    for i in range(n_trials):
+        aligned_data[i] = (R_mean_inv_sqrt @ eeg_data[i]).astype(np.float32)
+
+    return aligned_data, R_mean_inv_sqrt
 
 
 #Normalizzazione per canale
@@ -589,23 +617,23 @@ def compute_morlet_spectrogram(features, sfreq, freqs=np.linspace(LOW_FREQ, HIGH
     wvlts = tfr_array_morlet(features, sfreq=sfreq, freqs=freqs,
                              n_cycles=7, output='power', n_jobs=1)
 
-    # if mean is None or std is None:
-    #     mean = np.mean(wvlts, axis=(0), keepdims=True)
-    #     std  = np.std(wvlts, axis=(0), keepdims=True)
-    # wvlts = (wvlts - mean) / (std + 1e-10)
+    if mean is None or std is None:
+        mean = np.mean(wvlts, axis=(0, 1, 2), keepdims=True)
+        std  = np.std(wvlts, axis=(0, 1, 2), keepdims=True)
+    wvlts = (wvlts - mean) / (std + 1e-10)
     
     # wvlts = torch.tensor(wvlts, dtype=torch.float32)
 
-    # Ridimensiona a 224x224 (bilinear interpolation)
+    # # Ridimensiona a 224x224 (bilinear interpolation)
     # wvlts = F.interpolate(
     #     wvlts, size=(224, 224), mode='bilinear', align_corners=False
     # )
-    wvlts = np.log1p(wvlts)
+    # wvlts = np.log1p(wvlts)
     
-    mean = np.mean(wvlts, axis=(0), keepdims=True)
-    std = np.std(wvlts, axis=(0), keepdims=True)
+    # mean = np.mean(wvlts, axis=(0), keepdims=True)
+    # std = np.std(wvlts, axis=(0), keepdims=True)
     
-    wvlts = (wvlts - mean) / (std + 1e-10)
+    # wvlts = (wvlts - mean) / (std + 1e-10)
     return wvlts, mean, std
 
 def prepare_dataloaders(subject_id='A09', root='./BciCompetitionIv2a/Train', onlytest = False, augment = False, filter = "Butter", BCI = "2a"):
@@ -626,6 +654,8 @@ def prepare_dataloaders(subject_id='A09', root='./BciCompetitionIv2a/Train', onl
                 x_train, y_train, is_real = read_data_2b(subject_id, root_train, augment=augment, filter=filter, is_test = False)
             else:
                 x_train, y_train = read_data_2b(subject_id, root_train, augment=augment, filter=filter, is_test = False)
+
+        x_train, R = euclidean_alignment(x_train)
         x_train, mean, std = compute_morlet_spectrogram(x_train, sfreq=250)
         print(x_train.shape)
 
@@ -636,6 +666,8 @@ def prepare_dataloaders(subject_id='A09', root='./BciCompetitionIv2a/Train', onl
         else:
             root_test = './BciCompetitionIv2b'
             x_test, y_test = read_data_2b(subject_id, root_test, augment=augment, filter=filter, is_test = True)
+
+        x_test, R = euclidean_alignment(x_test, R)
         x_test, mean, std = compute_morlet_spectrogram(x_test, sfreq=250, mean=mean, std=std)
         #print(x_test.shape)
 

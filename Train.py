@@ -89,7 +89,7 @@ def training_epoch(model, train_loader, test_loader, val_loader ,criterion, opti
 
         inputs = inputs.to(device).float()
         labels = labels.to(device).squeeze().long()
-        inputs = random_augmentation(inputs)
+        #inputs = random_augmentation(inputs)
 
         optimizer.zero_grad()
         #outputs, out2 = model(inputs)
@@ -308,9 +308,11 @@ if __name__ == '__main__':
         #     param.requires_grad = True       
         # for param in model.single_classifier.parameters():
         #     param.requires_grad = True
-        optimizer = torch.optim.AdamW(
-            model.parameters()      
-            )
+        optimizer = torch.optim.Adam(
+            model.parameters(),
+            lr=config["train"]["lr"],
+            weight_decay = 0.01        
+            )   
 
         if config["run"]["scheduler"]:
             scheduler = get_epoch_cosine_schedule_with_warmup(optimizer, warmup_epochs=0.05*EPOCHS, total_epochs=EPOCHS)
