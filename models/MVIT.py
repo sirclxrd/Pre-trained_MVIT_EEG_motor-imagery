@@ -116,6 +116,9 @@ class PatchEmbedding(nn.Module):
         self.conv_proj = nn.Conv2d(in_channels, embed_dim, kernel_size=(patch_height, patch_width), stride=(patch_height, patch_width) ) 
 
         self.norm = nn.LayerNorm(embed_dim)
+        #self.bn = nn.BatchNorm2d(embed_dim)
+        #self.act = nn.ReLU(inplace=True)
+        #self.dropout = nn.Dropout(0.5)
         
         #proiezione come nel paper originale con flatten
         # (h ph) specificando ph e pw signfica fare h = (h / ph)
@@ -138,11 +141,90 @@ class PatchEmbedding(nn.Module):
             x = self.conv_proj(x)  # [B, embed_dim, H', W']
             x = x.flatten(2)  # [B, embed_dim, N]
             x = x.transpose(1, 2)  # [B, N, embed_dim]
-            x = self.norm(x)
+            #x = self.norm(x)
+            #x = self.bn(x)
+            #x = self.act(x)
+            x = self.dropout(x)
             #print(x.shape)
         else:
             x = self.vit_proj(x)
         return x
+
+class PatchEmbedding2(nn.Module):
+    """
+    Factorized Convolutional Stem Design (2+1)D per EEG spettrogramma
+    Input: [B, C=22, H=32, W=1008]
+    Output: [B, N, embed_dim], dove N = numero totale di patch
+    """
+
+    def __init__(self,
+                 in_channels=22,       # numero di canali EEG
+                 embed_dim=768,        # dimensione embedding finale
+                 f=64,                 # numero canali intermedi dopo conv2D
+                 H=32,                 # altezza spettrogramma
+                 W=1008,               # lunghezza temporale
+                 patch_height=4,       # altezza patch spaziale
+                 patch_width=32,       # larghezza patch temporale
+                 dropout=0.1):
+        super().__init__()
+
+        self.embed_dim = embed_dim
+        self.f = f
+
+        # aggiungiamo dimensione temporale T=1 per lo spettrogramma singolo
+        T = 1
+        patch_time = 1  # kernel temporale = 1 perché T=1
+
+        # Calcolo numero patch
+        H_p = H // patch_height
+        W_p = W // patch_width
+        T_p = T // patch_time
+        self.n_patches = H_p * W_p * T_p
+
+        # --- Convoluzione spaziale 2D (sui bins di frequenza e tempo) ---
+        self.conv2d = nn.Conv3d(
+            in_channels=in_channels,
+            out_channels=f,
+            kernel_size=(patch_time, patch_height, patch_width),
+            stride=(patch_time, patch_height, patch_width)
+        )
+        self.bn2d = nn.BatchNorm3d(f)
+        self.act = nn.ReLU(inplace=True)
+
+        # --- Convoluzione 1D temporale ---
+        self.conv1d = nn.Conv3d(
+            in_channels=f,
+            out_channels=embed_dim,
+            kernel_size=(patch_time, 1, 1),
+            stride=(patch_time, 1, 1)
+        )
+        self.bn1d = nn.BatchNorm3d(embed_dim)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x):
+        """
+        x: [B, C, H, W]
+        """
+        # aggiungi dimensione temporale T=1
+        x = x.unsqueeze(2)  # [B, C, T=1, H, W]
+
+        # conv2D spaziale
+        x = self.conv2d(x)
+        x = self.bn2d(x)
+        x = self.act(x)
+
+        # conv1D temporale
+        x = self.conv1d(x)
+        x = self.bn1d(x)
+        x = self.act(x)
+        x = self.dropout(x)
+
+        # reshape in sequenza di token [B, N, d]
+        B, d, T_p, H_p, W_p = x.shape
+        tokens = x.permute(0, 2, 3, 4, 1).reshape(B, self.n_patches, d)
+
+        return tokens
+
     
         
 
@@ -151,6 +233,7 @@ class ViTEncoder(nn.Module):
                  embed_dim=768, depth=2, num_heads=2, mlp_ratio=2.0, patch_width=16):
         super().__init__()
         self.patch_embed = PatchEmbedding(img_height,img_width, patch_size, in_channels, embed_dim, patch_width=patch_width)
+        #self.patch_embed = PatchEmbedding2()
         self.img_size = (img_height, img_width)
         self.patch_size = patch_size
         n_patches = self.patch_embed.n_patches
@@ -269,6 +352,7 @@ class MultiChannelViT(nn.Module):
             nn.init.trunc_normal_(self.pos_embed, std=0.02)
 
 
+            # self.encoders = nn.ModuleList([
             #     ViTEncoder(img_height=img_height,
             #                img_width = img_width,
             #             patch_size=patch_size,
@@ -316,7 +400,10 @@ class MultiChannelViT(nn.Module):
                                                    dropout=0.5
                                                    )
         self.encoder = nn.TransformerEncoder(last_transformer, num_layers=depth)
+        #self.encoder = PretrainedViTEncoder()
         self.norm = nn.LayerNorm(embed_dim)
+
+        
 
     def forward(self, x, group = False):
         # in questo modo devo dare in input tutti gli spettrogrammi concatenati sulla profondità
@@ -328,6 +415,7 @@ class MultiChannelViT(nn.Module):
             channels = []
             for i, encoder in enumerate(self.encoders):
                 #channel_i = x[:, i:i+1, :, :]  # [B, 1, H, W]
+                #token = encoder.patch_embed(channel_i)
                 token = encoder.patch_embed(x)     # [B, D]
                 
                 #nel caso voglio controllare gli output dei singoli canali
@@ -336,6 +424,9 @@ class MultiChannelViT(nn.Module):
 
                 tokens.append(token)
             x = torch.cat(tokens, dim=1)  # [B, 22*D]
+
+            x2 = x.mean(dim=1)
+            out2 = self.single_classifier(x2)
 
             B, N, D = x.shape
             # Aggiunta del token CLS
@@ -385,7 +476,7 @@ class MultiChannelViT(nn.Module):
             # print(single_token.shape)
             out = self.single_classifier(single_token)      # [B, num_classes]
 
-        return out
+        return out, out2
 
 
 class MultiChannelViTSelfSupervised(nn.Module):
@@ -526,6 +617,29 @@ class ViTEncoderPretrained(nn.Module):
 
     def forward(self, x):
         return self.vit(x)  # restituisce il token CLS
+
+class PretrainedViTEncoder(nn.Module):
+    def __init__(self, model_name='vit_small_patch16_224', pretrained=True):
+        super().__init__()
+        # carico un ViT pretrainato
+        vit = create_model(model_name, pretrained=pretrained)
+
+        # prendo solo l'encoder (blocchi Transformer + norm finale)
+        self.encoder = vit.blocks
+        self.norm = vit.norm
+        self.embed_dim = vit.embed_dim
+
+    def forward(self, x):
+        """
+        x: [B, N, D] dove D deve essere self.embed_dim (768 nel caso base).
+        """
+        h = x
+        for blk in self.encoder:
+            h = blk(h)
+        h = self.norm(h)  # [B, N, D]
+        return h
+
+
 
 # model = MultiChannelViT(n_channels=22, img_height = 32, img_width = 1008, patch_size=16, embed_dim=768, num_classes=4, single=False)
 # criterion = nn.CrossEntropyLoss() #contiene già una softmax
