@@ -116,9 +116,9 @@ class PatchEmbedding(nn.Module):
         self.conv_proj = nn.Conv2d(in_channels, embed_dim, kernel_size=(patch_height, patch_width), stride=(patch_height, patch_width) ) 
 
         self.norm = nn.LayerNorm(embed_dim)
-        #self.bn = nn.BatchNorm2d(embed_dim)
-        #self.act = nn.ReLU(inplace=True)
-        #self.dropout = nn.Dropout(0.5)
+        # self.bn = nn.BatchNorm2d(embed_dim)
+        # self.act = nn.ReLU(inplace=True)
+        # self.dropout = nn.Dropout(0.5)
         
         #proiezione come nel paper originale con flatten
         # (h ph) specificando ph e pw signfica fare h = (h / ph)
@@ -141,10 +141,10 @@ class PatchEmbedding(nn.Module):
             x = self.conv_proj(x)  # [B, embed_dim, H', W']
             x = x.flatten(2)  # [B, embed_dim, N]
             x = x.transpose(1, 2)  # [B, N, embed_dim]
-            #x = self.norm(x)
-            #x = self.bn(x)
-            #x = self.act(x)
-            x = self.dropout(x)
+            x = self.norm(x)
+            # x = self.bn(x)
+            # x = self.act(x)
+            # x = self.dropout(x)
             #print(x.shape)
         else:
             x = self.vit_proj(x)
@@ -331,8 +331,14 @@ class MultiChannelViT(nn.Module):
                 #         in_channels=1,
                 #         embed_dim=embed_dim)
 
+            # param_sets = [
+            # dict(patch_size=1,  patch_width = 336,  embed_dim=embed_dim, depth=depth, num_heads=num_heads),
+            # dict(patch_size=32, patch_width = 1, embed_dim=embed_dim, depth=depth, num_heads=num_heads),
+            # dict(patch_size=16, patch_width = 8, embed_dim=embed_dim, depth=depth, num_heads=num_heads)
+            # ]
+
             param_sets = [
-            dict(patch_size=1,  patch_width = 336,  embed_dim=embed_dim, depth=depth, num_heads=num_heads),
+            dict(patch_size=1,  patch_width = 142,  embed_dim=embed_dim, depth=depth, num_heads=num_heads),
             dict(patch_size=32, patch_width = 1, embed_dim=embed_dim, depth=depth, num_heads=num_heads),
             dict(patch_size=16, patch_width = 8, embed_dim=embed_dim, depth=depth, num_heads=num_heads)
             ]
