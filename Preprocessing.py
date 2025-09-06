@@ -59,17 +59,6 @@ def total_normalization(features):
     features_norm = (features - mean) / std
     return features_norm
 
-def channel_wise_normalization(X_train, mean_train, std_train , eps=1e-10):
-
-    if mean_train is not None and std_train is not None:
-        mean_train = X_train.mean(axis=(0, 2), keepdims=True)  # shape (1, n_channels, 1)
-        std_train  = X_train.std(axis=(0, 2), keepdims=True)   # shape (1, n_channels, 1)
-        
-    # Normalizza train e test
-    X_train_norm = (X_train - mean_train) / (std_train + eps)
-    
-    return X_train_norm, mean_train, std_train
-
 from scipy.stats import zscore
 #Test per vedere se normalizzando gli spettrogrammi migliora 
 def normalize_spectrogram(spectrogram):
