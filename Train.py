@@ -18,10 +18,11 @@ from math import ceil
 import math
 from torch.optim import AdamW
 from torch.cuda.amp import autocast, GradScaler
+from Preprocessing_physionet import preprocess_physionet
 
 VAL_EPOCH = 1
 EARLY_STOP = 10
-TOTAL_SUBJECTS = 9
+TOTAL_SUBJECTS = 105
 SUBJECT = 1
 LAMBDA = 0.7
 
@@ -89,7 +90,7 @@ def training_epoch(model, train_loader, test_loader, val_loader ,criterion, opti
 
         inputs = inputs.to(device).float()
         labels = labels.to(device).squeeze().long()
-        inputs = random_augmentation(inputs)
+        #inputs = random_augmentation(inputs)
 
         optimizer.zero_grad()
         outputs, out2 = model(inputs)
@@ -339,42 +340,47 @@ if __name__ == '__main__':
         print("------------------")
         batch_size = config["train"]["batch_size"]
 
-        if config["run"]["augment"]:
-            train_dataset, test_dataset, is_real = prepare_dataloaders(subject_id = subject, augment = config["run"]["augment"], filter=config["train"]["filter"], BCI = config["run"]["dataset"]) #choose if augment dataset
+        if config["run"]["dataset"].lower() == "physionet":
+            train_loader, val_loader, test_loader = preprocess_physionet(subject_id=subject, augment = config["run"]["augment"], filter = config["train"]["filter"], batch_size = batch_size)
         else:
-            train_dataset, test_dataset = prepare_dataloaders(subject_id = subject, augment = config["run"]["augment"], filter=config["train"]["filter"], BCI = config["run"]["dataset"]) #choose if augment dataset
-
-        #splitto in train e validation solo se specificato nel file
-        if config["run"]["val"]:
             if config["run"]["augment"]:
-                real_indices = np.where(is_real == 1)[0]
-                aug_indices  = np.where(is_real == 0)[0]
-
-                # Splitto solo i dati reali per creare il validation
-                indices = np.random.permutation(len(real_indices))
-                train_len = int(0.8 * len(indices))
-                train_real = real_indices[:train_len]
-                val_real   = real_indices[train_len:]
-
-                # Aggiungo dati augmentati solo al training
-                train_indices = np.concatenate([train_real, aug_indices])
-                val_indices = val_real
+                train_dataset, test_dataset, is_real = prepare_dataloaders(subject_id = subject, augment = config["run"]["augment"], filter=config["train"]["filter"], BCI = config["run"]["dataset"]) #choose if augment dataset
             else:
-                indices = np.random.permutation(len(train_dataset))
-                train_len = int(0.8 * len(indices))
-                train_indices = indices[:train_len]
-                val_indices = indices[train_len:]
+                train_dataset, test_dataset = prepare_dataloaders(subject_id = subject, augment = config["run"]["augment"], filter=config["train"]["filter"], BCI = config["run"]["dataset"]) #choose if augment dataset
+        
+            if config["run"]["val"]:
+                if config["run"]["augment"]:
+                    real_indices = np.where(is_real == 1)[0]
+                    aug_indices  = np.where(is_real == 0)[0]
 
-            train_subset = Subset(train_dataset, train_indices)
-            val_subset = Subset(train_dataset, val_indices)
+                    # Splitto solo i dati reali per creare il validation
+                    indices = np.random.permutation(len(real_indices))
+                    train_len = int(0.8 * len(indices))
+                    train_real = real_indices[:train_len]
+                    val_real   = real_indices[train_len:]
 
-            val_loader = DataLoader(val_subset, batch_size=batch_size, shuffle=False)
-            train_loader = DataLoader(train_subset, batch_size=batch_size, shuffle=True)
-        else:
-            val_loader = None
-            train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-        #################################
-        test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+                    # Aggiungo dati augmentati solo al training
+                    train_indices = np.concatenate([train_real, aug_indices])
+                    val_indices = val_real
+                else:
+                    indices = np.random.permutation(len(train_dataset))
+                    train_len = int(0.8 * len(indices))
+                    train_indices = indices[:train_len]
+                    val_indices = indices[train_len:]
+
+                train_subset = Subset(train_dataset, train_indices)
+                val_subset = Subset(train_dataset, val_indices)
+
+                val_loader = DataLoader(val_subset, batch_size=batch_size, shuffle=False)
+                train_loader = DataLoader(train_subset, batch_size=batch_size, shuffle=True)
+            else:
+                val_loader = None
+                train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+            #################################
+            test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+
+
+
 
         # per caricare il modello, RICORDA DI CONTROLLARE ANCHE SE SAVE_MODEL E' LO STESSO
         if config["train"]["load"] == True:
@@ -398,7 +404,8 @@ if __name__ == '__main__':
             #     param.requires_grad = False  
             # for param in model.single_classifier.parameters():
             #     param.requires_grad = True
-    
+
+        append_to_log_file(log_path, f"Train on subject {subject}")
         for i in range(EPOCHS):
             if val_loader is not None and (i+1) % VAL_EPOCH == 0:
                 loss, epoch_accuracy, val_loss, epoch_val_accuracy = training_epoch(model, train_loader, test_loader, val_loader ,criterion, optimizer, scheduler, epoch=i, log_file = log_path)

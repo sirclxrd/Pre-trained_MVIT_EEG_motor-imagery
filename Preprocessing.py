@@ -130,8 +130,10 @@ def segment_and_rec_total_augmentation(features, labels, dataset="2a"):
 
     if dataset == "2a":
         segment_length = 1008 // 8  # 1008 / 8
-    else:
+    elif dataset == "2b":
         segment_length = 1136 // 8
+    else:
+        segment_length = 480 // 8
     num_segments = 8
     C = features.shape[1]
 
@@ -551,6 +553,66 @@ def read_data_2b(subject_id, base_path, tmin=0, tmax=4.540, augment=False, filte
             
     return features, labels
 
+def read_data_physionet(base_path, subject=1, tmin=0.0, tmax=2.995, preload=True, augment=False, filter="Butter"):
+
+    # run motor imagery in PhysioNet:
+    # 4,8,12 → mano sinistra (T1), mano destra (T2)
+    # 6,10,14 → mani (T1), piedi (T2)
+    runs = [4, 6, 8, 10, 12, 14]
+    subject = int(subject[2:]) # "A01" --> 1, "A109" --> "109"
+
+    X_list, y_list = [], []
+
+    for run in runs:
+        file_path = os.path.join(base_path, f"S{subject:03d}", f"S{subject:03d}R{run:02d}.edf")
+
+        raw = mne.io.read_raw_edf(file_path, preload=preload, stim_channel="auto", verbose=False)
+        events, event_id = mne.events_from_annotations(raw, verbose=False)
+
+        # mapping in base al tipo di run
+        if run in [4, 8, 12]:     # left / right
+            mapping = {"left": "T1", "right": "T2"}
+        elif run in [6, 10, 14]:  # hands / feet
+            mapping = {"hands": "T1", "feet": "T2"}
+        else:
+            continue
+
+        # solo eventi che ci interessano
+        selected_event_id = {cls: event_id[tag] for cls, tag in mapping.items() if tag in event_id}
+
+        if not selected_event_id:
+            continue
+
+        # epoche
+        epochs = mne.Epochs(raw, events, event_id=selected_event_id,
+                            tmin=tmin, tmax=tmax,
+                            baseline=None, preload=True, verbose=False)
+
+        # converti etichette in numeri 0..3
+        inv_map = {v: k for k, v in selected_event_id.items()}
+        y_run = [inv_map[e] for e in epochs.events[:, 2]]
+
+        # assegna numeri fissi: left=0, right=1, hands=2, feet=3
+        label_map = {"left": 0, "right": 1, "hands": 2, "feet": 3}
+        y_run = np.array([label_map[c] for c in y_run])
+
+        X_list.append(epochs.get_data())
+        y_list.append(y_run)
+
+    features = np.concatenate(X_list, axis=0)
+    labels = np.concatenate(y_list, axis=0).reshape(-1, 1)   # (N_trials, 1) altrimenti errore nell'augment di dimensione
+
+    if augment:
+        features, labels, is_real = segment_and_rec_total_augmentation(features, labels, dataset="physionet")
+        print("Train Features shape: ",features.shape)
+        print("Train Labels shape: ",labels.shape)
+        print("Train dataset done")
+        return features, labels, is_real
+
+    print(f"Shape X: {features.shape}, Shape y: {labels.shape}")
+
+    return features, labels
+
 def read_mat_data(dir_path, dataset_type, n_sub, mode='train', augment=False):
 
     if mode=='train':
@@ -589,10 +651,11 @@ def compute_morlet_spectrogram(features, sfreq, freqs=np.linspace(LOW_FREQ, HIGH
     wvlts = tfr_array_morlet(features, sfreq=sfreq, freqs=freqs,
                              n_cycles=7, output='power', n_jobs=1)
 
-    wvlts = np.log1p(wvlts)
+    #wvlts = np.log1p(wvlts)
     
-    mean = np.mean(wvlts, axis=(0), keepdims=True)
-    std = np.std(wvlts, axis=(0), keepdims=True)
+    if mean is None and std is None:
+        mean = np.mean(wvlts, axis=(0), keepdims=True)
+        std = np.std(wvlts, axis=(0), keepdims=True)
     
     wvlts = (wvlts - mean) / (std + 1e-10)
     return wvlts, mean, std
@@ -614,7 +677,7 @@ def prepare_dataloaders(subject_id='A09', root='./BciCompetitionIv2a/Train', onl
             if augment == True:
                 x_train, y_train, is_real = read_data_2b(subject_id, root_train, augment=augment, filter=filter, is_test = False)
             else:
-                x_train, y_train = read_data_2b(subject_id, root_train, augment=augment, filter=filter, is_test = False)
+                x_train, y_train = read_data_2b(subject_id, root_train, augment=augment, filter=filter, is_test = False) 
         x_train, mean, std = compute_morlet_spectrogram(x_train, sfreq=250)
         print(x_train.shape)
 
