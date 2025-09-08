@@ -18,11 +18,13 @@ from math import ceil
 import math
 from torch.optim import AdamW
 from torch.cuda.amp import autocast, GradScaler
-from Preprocessing_physionet import preprocess_physionet
 
-VAL_EPOCH = 1
-EARLY_STOP = 10
-TOTAL_SUBJECTS = 105
+from Preprocessing_physionet import preprocess_physionet
+from Preprocessing_2a import preprocess_2a
+
+VAL_EPOCH = 2
+EARLY_STOP = 15
+TOTAL_SUBJECTS = 9
 SUBJECT = 1
 LAMBDA = 0.7
 
@@ -257,7 +259,10 @@ if __name__ == '__main__':
     save_path = save_path
     print("Save_path:",save_path)
 
+    skip_subjects = [87, 91, 99, 103]
     for n in range (TOTAL_SUBJECTS):
+        if n in skip_subjects:
+            continue #skippa l'iterazione
         early_stop = 0
         stopped = False
 
@@ -382,6 +387,7 @@ if __name__ == '__main__':
 
 
 
+
         # per caricare il modello, RICORDA DI CONTROLLARE ANCHE SE SAVE_MODEL E' LO STESSO
         if config["train"]["load"] == True:
             if config["run"]["val"] == True:
@@ -462,6 +468,7 @@ if __name__ == '__main__':
         visualize_train_loss_acc(epoch_loss, epoch_acc, epoch_val_loss, epoch_val_acc, save_path=graphs_path + "/" +subject)
         if config["run"]["save"] == False:
             os.remove(load_path + "/" + subject + ".pth")
+            os.remove(load_path + "/v_" + subject + ".pth")
     print("The mean accuracy is: ",np.mean(total_test_acc))
     txt = f"The mean accuracy is: {np.mean(total_test_acc)}"
     append_to_log_file(log_path, txt)

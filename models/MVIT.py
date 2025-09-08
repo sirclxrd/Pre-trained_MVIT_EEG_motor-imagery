@@ -332,11 +332,11 @@ class MultiChannelViT(nn.Module):
                 #         embed_dim=embed_dim)
 
             #2a
-            # param_sets = [
-            # dict(patch_size=1,  patch_width = 336,  embed_dim=embed_dim, depth=depth, num_heads=num_heads),
-            # dict(patch_size=32, patch_width = 1, embed_dim=embed_dim, depth=depth, num_heads=num_heads),
-            # dict(patch_size=16, patch_width = 8, embed_dim=embed_dim, depth=depth, num_heads=num_heads)
-            # ]
+            param_sets = [
+            dict(patch_size=1,  patch_width = 336,  embed_dim=embed_dim, depth=depth, num_heads=num_heads),
+            dict(patch_size=32, patch_width = 1, embed_dim=embed_dim, depth=depth, num_heads=num_heads),
+            dict(patch_size=16, patch_width = 8, embed_dim=embed_dim, depth=depth, num_heads=num_heads)
+            ]
 
             #2b
             # param_sets = [
@@ -346,11 +346,11 @@ class MultiChannelViT(nn.Module):
             # ]
 
             #physionet
-            param_sets = [
-            dict(patch_size=1,  patch_width = 160,  embed_dim=embed_dim, depth=depth, num_heads=num_heads),
-            dict(patch_size=32, patch_width = 1, embed_dim=embed_dim, depth=depth, num_heads=num_heads),
-            dict(patch_size=16, patch_width = 8, embed_dim=embed_dim, depth=depth, num_heads=num_heads)
-            ]
+            # param_sets = [
+            # dict(patch_size=1,  patch_width = 160,  embed_dim=embed_dim, depth=depth, num_heads=num_heads),
+            # dict(patch_size=32, patch_width = 1, embed_dim=embed_dim, depth=depth, num_heads=num_heads),
+            # dict(patch_size=16, patch_width = 8, embed_dim=embed_dim, depth=depth, num_heads=num_heads)
+            # ]
 
             self.encoders = nn.ModuleList([
                 ViTEncoder(
