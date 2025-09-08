@@ -20,7 +20,7 @@ from torch.utils.data import ConcatDataset
 from torch.optim import AdamW
 from sklearn.metrics import confusion_matrix
 
-
+LAMBDA = 0.7
 device = 'cuda'
 def test_model(model, test_loader, criterion, log_file = "log.txt"):
     model.to(device)
@@ -45,10 +45,10 @@ def test_model(model, test_loader, criterion, log_file = "log.txt"):
 
             #tempo per un batch di campioni
             start_time = time.time()
-            outputs = model(inputs)
+            outputs, out2 = model(inputs)
             end_time = time.time()
 
-            loss = criterion(outputs, labels)
+            loss = (1-LAMBDA) * criterion(outputs, labels) + LAMBDA*criterion(out2, labels)
             running_loss += loss.item()
 
             _, predicted = torch.max(outputs.data, 1)
@@ -91,14 +91,14 @@ for n in range(9):
     subject_test = f"A0{n+1}"
     batch_size = 32
     #load_path = "Single_checkpoints/16_2_2/val_" + subject + ".pth"
-    load_path = save_path + "/val_M" +subject_test + ".pth"
+    load_path = save_path + "/v_" +subject_test + ".pth"
     model = MultiChannelViT(**config["model"])
     #model = pret_MVIT(n_channels=22, img_height = 64, img_width = 1008, patch_size=PATCH_SIZE, embed_dim=768, num_classes=4, single=SINGLE)
 
     model = model.to(device=device)
     criterion = nn.CrossEntropyLoss() #contiene già una softmax
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
-    test_dataset = prepare_dataloaders(subject_id = subject_test, augment = config["run"]["augment"], filter=config["train"]["filter"], BCI = config["run"]["dataset"], onlytest=True)
+    _,test_dataset = prepare_dataloaders(subject_id = subject_test, augment = False, filter=config["train"]["filter"], BCI = config["run"]["dataset"], onlytest=False)
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
     checkpoint = torch.load(load_path)
     model.load_state_dict(checkpoint['model_state_dict'])
