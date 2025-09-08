@@ -71,6 +71,19 @@ def test_model(model, test_loader, criterion, log_file = "log.txt"):
     #append_to_log_file(log_file, txt)
     return avg_loss, accuracy, all_preds, all_labels
 
+def cls_token_importance(fc_layer, embed_dim=768, n_channels=22):
+    importances = []
+    for i in range(n_channels):
+        w_i = fc_layer.weight[:, i*embed_dim:(i+1)*embed_dim]  # [num_classes, D]
+        imp_i = torch.norm(w_i, p=2).item()
+        importances.append((i, imp_i))
+    importances.sort(key=lambda x: x[1], reverse=True)
+    
+    print("Channel ranking by CLS token importance:")
+    for idx, imp in importances:
+        print(f"Channel {idx}: importance = {imp:.4f}")
+    return importances
+
 seed_n = 2025
 print('seed is ' + str(seed_n))
 random.seed(seed_n)
@@ -110,6 +123,8 @@ for n in range(9):
     print("Epoch=", last_epoch)
     print("Train loss=", loss)
     avg_loss, avg_acc, all_preds, all_labels = test_model(model, test_loader, criterion)
+    importances = cls_token_importance(model.concat_classifier[0])
+    append_to_log_file(log_path, f"Importances {importances}")
     txt = f"Accuracy on {subject_test} is {avg_acc}"
     append_to_log_file(log_path, txt)
     s_accuracy.append(avg_acc)
