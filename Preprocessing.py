@@ -16,6 +16,8 @@ from scipy.stats import pearsonr
 import random
 import scipy
 import torch.nn.functional as F
+from scipy.linalg import fractional_matrix_power
+
 
 
 
@@ -677,8 +679,9 @@ def prepare_dataloaders(subject_id='A09', root='./BciCompetitionIv2a/Train', onl
             if augment == True:
                 x_train, y_train, is_real = read_data_2b(subject_id, root_train, augment=augment, filter=filter, is_test = False)
             else:
-                x_train, y_train = read_data_2b(subject_id, root_train, augment=augment, filter=filter, is_test = False) 
+                x_train, y_train = read_data_2b(subject_id, root_train, augment=augment, filter=filter, is_test = False)
         x_train, mean, std = compute_morlet_spectrogram(x_train, sfreq=250)
+        
         print(x_train.shape)
 
         # TEST
@@ -688,6 +691,7 @@ def prepare_dataloaders(subject_id='A09', root='./BciCompetitionIv2a/Train', onl
         else:
             root_test = './BciCompetitionIv2b'
             x_test, y_test = read_data_2b(subject_id, root_test, augment=augment, filter=filter, is_test = True)
+
         x_test, mean, std = compute_morlet_spectrogram(x_test, sfreq=250, mean=mean, std=std)
         #print(x_test.shape)
 
