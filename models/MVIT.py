@@ -97,12 +97,18 @@ class PatchEmbedding(nn.Module):
         assert height % patch_height == 0 and width % patch_width == 0, \
             "Le dimensioni dell'immagine devono essere divisibili per la patch size"
 
+        #self.pre_pool = nn.AvgPool2d(kernel_size=(1,2), stride=(1,2))
+        #width = width // 2
 
         self.n_patches = (height // patch_height) * (width // patch_width)
         #stride = patch_size//2 
         #padding = 0
         #self.n_patches = int(((img_height - patch_size + 2 * padding) // stride + 1) * \
         #                ((img_width - patch_size + 2 * padding) // stride + 1)) #patch overlap
+        
+        # reduced_channels = 6
+        # self.bottleneck = nn.Conv2d(in_channels, reduced_channels, kernel_size=1)
+        # in_channels = reduced_channels
 
         patch_dim = in_channels * patch_height * patch_width
         
@@ -111,10 +117,15 @@ class PatchEmbedding(nn.Module):
         # self.cnn = create_model(cnn_name, pretrained=False, features_only=True, in_chans=in_channels)
         # self.cnn_out_dim = self.cnn.feature_info[-1]['num_chs']  # typically 512 or 2048
 
-
         #self.conv_proj = nn.Conv2d(self.cnn_out_dim, embed_dim, kernel_size=patch_size, stride=patch_size)
         self.conv_proj = nn.Conv2d(in_channels, embed_dim, kernel_size=(patch_height, patch_width), stride=(patch_height, patch_width) ) 
 
+        self.embedding = nn.Sequential(
+            nn.BatchNorm2d(embed_dim),     # normalizzazione spaziale
+            nn.GELU(),                     # non linearità più smooth di ReLU
+            nn.Dropout2d(0.2)              # regolarizzazione leggera
+            # opzionale: nn.AvgPool2d(kernel_size=2, stride=2)
+        )
         self.norm = nn.LayerNorm(embed_dim)
         # self.bn = nn.BatchNorm2d(embed_dim)
         # self.act = nn.ReLU(inplace=True)
@@ -138,7 +149,10 @@ class PatchEmbedding(nn.Module):
             #x = self.conv_proj1(x)
             #x = self.conv_proj2(x)
             #x = self.cnn(x)[-1]
+            #x = self.bottleneck(x)
+            #x = self.pre_pool(x)
             x = self.conv_proj(x)  # [B, embed_dim, H', W']
+            #x = self.embedding(x)
             x = x.flatten(2)  # [B, embed_dim, N]
             x = x.transpose(1, 2)  # [B, N, embed_dim]
             x = self.norm(x)
@@ -399,6 +413,13 @@ class MultiChannelViT(nn.Module):
         )
 
         # classifier per output singolo
+        self.single_classifier2 = nn.Sequential(
+            nn.Linear(embed_dim*2, 512),
+            nn.ReLU(),
+            nn.Dropout(0.5), ######
+            nn.Linear(512, num_classes)
+        )
+
         self.single_classifier = nn.Sequential(
             nn.Linear(embed_dim, 512),
             nn.ReLU(),
@@ -454,10 +475,12 @@ class MultiChannelViT(nn.Module):
             x = self.encoder(x)  # [B, N+1, D]
             x = self.norm(x)
 
+            cls_rep = x[:, 0]
             patch_tokens = x[:, 1:, :]                 # [B, N, D]
             pooled = patch_tokens.mean(dim=1) 
+            out = torch.cat([cls_rep, pooled], dim=-1)
 
-            out = self.single_classifier(pooled)
+            out = self.single_classifier2(out)
 
             # tokens = torch.stack(tokens, dim=1)
             # attn_output = self.eeg_attention(tokens)
