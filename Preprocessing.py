@@ -351,6 +351,7 @@ def read_data(path, tmin=2, tmax=6.028, is_test=False, augment = False, filter =
     raw=mne.io.read_raw_gdf(path,preload=True,
                             eog=['EOG-left', 'EOG-central', 'EOG-right'])
     raw.drop_channels(['EOG-left', 'EOG-central', 'EOG-right'])
+    #raw.pick_channels(['EEG-C3', 'EEG-Cz', 'EEG-C4'])
     #event_id = dict(left=769, right=770, feet=771, tongue=772)
     if filter == "Butter":
         raw.filter(l_freq=8, h_freq=30, method='iir', iir_params=dict(order=5, ftype='butter'), phase='zero') # filtro Butterworth [8,30]Hz ordine 5
