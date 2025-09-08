@@ -130,7 +130,7 @@ def segment_and_rec_total_augmentation(features, labels, dataset="2a"):
 
     if dataset == "2a":
         segment_length = 1008 // 8  # 1008 / 8
-    else:
+    elif dataset == "2b":
         segment_length = 1136 // 8
     else:
         segment_length = 480 // 8

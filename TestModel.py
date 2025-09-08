@@ -91,7 +91,7 @@ for n in range(9):
     subject_test = f"A0{n+1}"
     batch_size = 32
     #load_path = "Single_checkpoints/16_2_2/val_" + subject + ".pth"
-    load_path = save_path + "/val_" +subject_test + ".pth"
+    load_path = save_path + "/v_" +subject_test + ".pth"
     model = MultiChannelViT(**config["model"])
     #model = pret_MVIT(n_channels=22, img_height = 64, img_width = 1008, patch_size=PATCH_SIZE, embed_dim=768, num_classes=4, single=SINGLE)
 
@@ -102,9 +102,10 @@ for n in range(9):
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
     checkpoint = torch.load(load_path)
     model.load_state_dict(checkpoint['model_state_dict'])
-    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+    #optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
     #scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
     last_epoch = checkpoint['epoch'] + 1  # Per riprendere
+    append_to_log_file(log_path, f"last epoch {last_epoch}")
     loss = checkpoint['loss']
     print("Epoch=", last_epoch)
     print("Train loss=", loss)
