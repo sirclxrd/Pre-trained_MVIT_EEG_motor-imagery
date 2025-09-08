@@ -19,6 +19,10 @@ import math
 from torch.utils.data import ConcatDataset
 from torch.optim import AdamW
 from sklearn.metrics import confusion_matrix
+import matplotlib.pyplot as plt
+import cv2
+import torch.nn.functional as F
+
 
 
 device = 'cuda'
@@ -84,6 +88,101 @@ def cls_token_importance(fc_layer, embed_dim=768, n_channels=22):
         print(f"Channel {idx}: importance = {imp:.4f}")
     return importances
 
+import torch
+import matplotlib.pyplot as plt
+import cv2
+
+def visualize_attention_on_image(image_tensor, attn_weights, save_path="./attention_visualization.png", target_size=(224,224)):
+    """
+    Sovrappone la mappa di attenzione all'immagine.
+    - image_tensor: [C,H,W] o [H,W]
+    - attn_weights: [num_patches] tensor
+    - target_size: dimensione finale immagine salvata
+    """
+    import torch.nn.functional as F
+    import matplotlib.pyplot as plt
+    import cv2
+    import math
+
+    # Passa a CPU e numpy
+    image = image_tensor.cpu().numpy()
+    if image.ndim == 3:
+        image = image[0]  # primo canale
+
+    # Normalizza immagine tra 0 e 1
+    image = (image - image.min()) / (image.max() - image.min() + 1e-8)
+    
+    # Calcolo dimensione griglia patch
+    num_patches = attn_weights.shape[0]
+    grid_h = int(math.ceil(math.sqrt(num_patches)))
+    grid_w = int(math.ceil(num_patches / grid_h))
+    
+    # Padding se necessario
+    if grid_h * grid_w > num_patches:
+        pad_size = grid_h * grid_w - num_patches
+        attn_weights = F.pad(attn_weights, (0, pad_size), value=0)
+
+    attn_map = attn_weights.cpu().numpy()
+    attn_grid = attn_map.reshape((grid_h, grid_w))
+
+    # Ridimensiona immagine e attention alla dimensione target
+    H_target, W_target = target_size
+    image_resized = cv2.resize(image, (W_target, H_target), interpolation=cv2.INTER_CUBIC)
+    attn_resized = cv2.resize(attn_grid, (W_target, H_target), interpolation=cv2.INTER_CUBIC)
+
+    # Normalizza attention
+    attn_resized = (attn_resized - attn_resized.min()) / (attn_resized.max() - attn_resized.min() + 1e-8)
+
+    cmap = plt.get_cmap("jet")
+    attn_color = cmap(attn_resized)[:,:,:3]
+    overlay = 0.6*image_resized[:,:,None] + 0.4*attn_color
+    overlay = np.clip(overlay, 0.0, 1.0)  # <-- importantissimo
+
+    # Salva
+    plt.imsave(save_path, overlay)
+    print(f"Saved attention overlay to {save_path}")
+
+
+
+def extract_and_visualize_attention_channels(model, dataloader, device="cuda", patch_grid_shape=(2,63), save_dir="."):
+    """
+    Estrae il primo batch dal dataloader, calcola le mappe di attenzione per tutti i canali e salva le immagini.
+    """
+    model.eval()
+    model.to(device)
+    
+    with torch.no_grad():
+        for batch in dataloader:
+            x_batch = batch[0] if isinstance(batch, (tuple, list)) else batch
+            x_batch = x_batch.to(device)
+            
+            # Lista per salvare le immagini
+            B = x_batch.shape[0]
+            
+            # Itera sul batch (qui prendi solo il primo esempio)
+            sample_image = x_batch[0]  # [C,H,W]
+            
+            # Ciclo su ciascun encoder (canale)
+            for ch_idx, encoder in enumerate(model.encoders):
+                # Patch embedding del canale
+                channel_input = x_batch[0:1, ch_idx:ch_idx+1, :, :]
+                token = encoder.patch_embed(channel_input)
+                
+                # Forward singolo encoder con ritorno attention
+                _, attn = encoder.encoder(token, return_attn=True)
+                
+                # Prendi la prima testa e il CLS token
+                cls_attn = attn[0][0, 0, 1:]  # esclude CLS
+                
+                # Prendi solo il canale corrispondente dall’immagine
+                channel_image = sample_image[ch_idx:ch_idx+1, :, :]
+                
+                save_path = f"{save_dir}/attention_channel{ch_idx}.png"
+                visualize_attention_on_image(channel_image, cls_attn, save_path)
+            
+            break  # prendi solo il primo batch
+
+
 seed_n = 2025
 print('seed is ' + str(seed_n))
 random.seed(seed_n)
@@ -130,6 +229,16 @@ for n in range(9):
     s_accuracy.append(avg_acc)
     cm = confusion_matrix(all_labels, all_preds)
     plot_confusion_matrix(cm, graphs_path+"/cm_"+subject_test)
+    extract_and_visualize_attention_channels(model, test_loader, device="cuda", patch_grid_shape=(2,63), save_dir=graphs_path)
+    # extract_and_visualize_attention_channel(
+    # model,
+    # test_loader,
+    # device="cuda",
+    # channel_idx=0,       # canale da visualizzare
+    # patch_grid_shape=(2,63),
+    # save_path=graphs_path+"attn_"+subject_test
+    # )
+
 
 txt = f"Mean accuracy {np.mean(s_accuracy)}"
 append_to_log_file(log_path, txt)
