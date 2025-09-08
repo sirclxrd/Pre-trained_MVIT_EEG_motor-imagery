@@ -91,7 +91,7 @@ def training_epoch(model, train_loader, test_loader, val_loader ,criterion, opti
 
         inputs = inputs.to(device).float()
         labels = labels.to(device).squeeze().long()
-        #inputs = random_augmentation(inputs)
+        inputs = random_augmentation(inputs)
 
         optimizer.zero_grad()
         #outputs, out2 = model(inputs)
@@ -404,9 +404,9 @@ if __name__ == '__main__':
             #     param.requires_grad = False  
             # for param in model.single_classifier.parameters():
             #     param.requires_grad = True
-    
+
+        append_to_log_file(log_path, f"Train on subject {subject}")
         for i in range(EPOCHS):
-            append_to_log_file(log_path, f"Train on subject {subject}")
             if val_loader is not None and (i+1) % VAL_EPOCH == 0:
                 loss, epoch_accuracy, val_loss, epoch_val_accuracy = training_epoch(model, train_loader, test_loader, val_loader ,criterion, optimizer, scheduler, epoch=i, log_file = log_path)
                 if val_loss <= val_best_loss or epoch_val_accuracy >= val_best_acc:
