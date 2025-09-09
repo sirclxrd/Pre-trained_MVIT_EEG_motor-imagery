@@ -642,7 +642,7 @@ def block_reduce_sum(arr, block_size_freq, block_size_time):
     return arr.sum(axis=(3, 5))  # somma su blocchi freq e tempo
 
 
-def compute_morlet_spectrogram(features, sfreq, freqs=np.linspace(LOW_FREQ, HIGH_FREQ, N_FREQ), n_cycles=7, mean = None, std = None):
+def compute_morlet_spectrogram(features, sfreq, freqs=np.linspace(4, 49, 32), n_cycles=7, mean = None, std = None):
     """
     features: ndarray (n_epochs, n_channels, n_times)
     sfreq: frequenza di campionamento (Hz), per BCIC IV 2a è 250 Hz

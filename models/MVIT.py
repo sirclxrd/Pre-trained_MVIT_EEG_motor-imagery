@@ -469,7 +469,7 @@ class MultiChannelViT(nn.Module):
             cls_tokens = self.cls_token.expand(B, -1, -1)  # [B, 1, D]
             x = torch.cat((cls_tokens, x), dim=1)  # [B, N+1, D]
             pos_embed = self.pos_embed.expand(B, -1, -1)
-            x = x + self.pos_embed  # aggiunta positional embedding
+            x = x + pos_embed  # aggiunta positional embedding
             #x = x + self.interpolate_pos_embed(x, self.pos_embed, (grid_h, grid_w))
             # print("After patch layer shape: ", x.shape)
             x = self.encoder(x)  # [B, N+1, D]
@@ -478,9 +478,9 @@ class MultiChannelViT(nn.Module):
             cls_rep = x[:, 0]
             patch_tokens = x[:, 1:, :]                 # [B, N, D]
             pooled = patch_tokens.mean(dim=1) 
-            out = torch.cat([cls_rep, pooled], dim=-1)
+            #out = torch.cat([cls_rep, pooled], dim=-1)
 
-            out = self.single_classifier2(out)
+            out = self.single_classifier(pooled)
 
             # tokens = torch.stack(tokens, dim=1)
             # attn_output = self.eeg_attention(tokens)
