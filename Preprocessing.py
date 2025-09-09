@@ -16,8 +16,6 @@ from scipy.stats import pearsonr
 import random
 import scipy
 import torch.nn.functional as F
-from scipy.linalg import fractional_matrix_power
-
 
 
 
@@ -351,7 +349,6 @@ def read_data(path, tmin=2, tmax=6.028, is_test=False, augment = False, filter =
     raw=mne.io.read_raw_gdf(path,preload=True,
                             eog=['EOG-left', 'EOG-central', 'EOG-right'])
     raw.drop_channels(['EOG-left', 'EOG-central', 'EOG-right'])
-    #raw.pick_channels(['EEG-C3', 'EEG-Cz', 'EEG-C4'])
     #event_id = dict(left=769, right=770, feet=771, tongue=772)
     if filter == "Butter":
         raw.filter(l_freq=8, h_freq=30, method='iir', iir_params=dict(order=5, ftype='butter'), phase='zero') # filtro Butterworth [8,30]Hz ordine 5
@@ -642,7 +639,7 @@ def block_reduce_sum(arr, block_size_freq, block_size_time):
     return arr.sum(axis=(3, 5))  # somma su blocchi freq e tempo
 
 
-def compute_morlet_spectrogram(features, sfreq, freqs=np.linspace(4, 49, 32), n_cycles=7, mean = None, std = None):
+def compute_morlet_spectrogram(features, sfreq, freqs=np.linspace(LOW_FREQ, HIGH_FREQ, N_FREQ), n_cycles=7, mean = None, std = None):
     """
     features: ndarray (n_epochs, n_channels, n_times)
     sfreq: frequenza di campionamento (Hz), per BCIC IV 2a è 250 Hz
@@ -654,11 +651,9 @@ def compute_morlet_spectrogram(features, sfreq, freqs=np.linspace(4, 49, 32), n_
     wvlts = tfr_array_morlet(features, sfreq=sfreq, freqs=freqs,
                              n_cycles=7, output='power', n_jobs=1)
 
-    #wvlts = np.log1p(wvlts)
-    
-    if mean is None and std is None:
-        mean = np.mean(wvlts, axis=(0), keepdims=True)
-        std = np.std(wvlts, axis=(0), keepdims=True)
+    wvlts = np.log1p(wvlts)
+    mean = np.mean(wvlts, axis=(0), keepdims=True)
+    std = np.std(wvlts, axis=(0), keepdims=True)
     
     wvlts = (wvlts - mean) / (std + 1e-10)
     return wvlts, mean, std
@@ -682,7 +677,6 @@ def prepare_dataloaders(subject_id='A09', root='./BciCompetitionIv2a/Train', onl
             else:
                 x_train, y_train = read_data_2b(subject_id, root_train, augment=augment, filter=filter, is_test = False)
         x_train, mean, std = compute_morlet_spectrogram(x_train, sfreq=250)
-        
         print(x_train.shape)
 
         # TEST
@@ -692,7 +686,6 @@ def prepare_dataloaders(subject_id='A09', root='./BciCompetitionIv2a/Train', onl
         else:
             root_test = './BciCompetitionIv2b'
             x_test, y_test = read_data_2b(subject_id, root_test, augment=augment, filter=filter, is_test = True)
-
         x_test, mean, std = compute_morlet_spectrogram(x_test, sfreq=250, mean=mean, std=std)
         #print(x_test.shape)
 
@@ -724,6 +717,7 @@ def prepare_dataloaders(subject_id='A09', root='./BciCompetitionIv2a/Train', onl
 # train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 # test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 # print(len(train_loader))
+
 
 
 

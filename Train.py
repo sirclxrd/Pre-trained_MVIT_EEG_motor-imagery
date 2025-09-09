@@ -31,7 +31,7 @@ LAMBDA = 0.7
 
 device = 'cuda'
 
-def frequency_masking(spectrogram, F=15):
+def frequency_masking(spectrogram, F=6):
     f = spectrogram.shape[-2]
     f0 = random.randint(0, f - F)
     spectrogram[:, :, f0:f0+F, :] = 0
@@ -65,8 +65,8 @@ def random_augmentation(spectrogram):
         spectrogram trasformato
     """
     augmentations = [
-        lambda x: frequency_masking(x, F=15),
-        lambda x: time_masking(x, T=500),
+        lambda x: frequency_masking(x, F=6),
+        lambda x: time_masking(x, T=200),
         lambda x: frequency_masking(time_masking(x, T = 200)),        
         lambda x: x
     ]
