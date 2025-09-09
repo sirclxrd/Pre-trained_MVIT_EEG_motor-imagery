@@ -96,7 +96,7 @@ def training_epoch(model, train_loader, test_loader, val_loader ,criterion, opti
         optimizer.zero_grad()
         #outputs, out2 = model(inputs)
         #loss = (1-LAMBDA) * criterion(outputs, labels) + LAMBDA*criterion(out2, labels)
-        outputs = model(inputs)
+        outputs, clstoken = model(inputs)
         loss = criterion(outputs, labels)
         
         if torch.isnan(outputs).any():
@@ -141,7 +141,7 @@ def training_epoch(model, train_loader, test_loader, val_loader ,criterion, opti
 
                 # outputs, out2 = model(inputs)
                 # loss = (1-LAMBDA) * criterion(outputs, labels) + LAMBDA*criterion(out2, labels)
-                outputs = model(inputs)
+                outputs, clstoken = model(inputs)
                 loss = criterion(outputs, labels)
 
                 val_loss += loss.item()
@@ -183,7 +183,7 @@ def test_model(model, test_loader, criterion, log_file = "log.txt"):
             #tempo per un batch di campioni
             start_time = time.time()
             #outputs, out2 = model(inputs)
-            outputs = model(inputs)
+            outputs, clstoken = model(inputs)
             end_time = time.time()
 
             #loss = (1-LAMBDA) * criterion(outputs, labels) + LAMBDA*criterion(out2, labels)

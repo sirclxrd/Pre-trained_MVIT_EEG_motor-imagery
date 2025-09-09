@@ -105,65 +105,70 @@ class EEGSpatialAttention(nn.Module):
 #da 0 a 3.996 ho (22,1000)
 #da 0 a 4.028 o (22,1008) buono per fare 16x16 patch
 
-import torch
-import torch.nn as nn
-from einops.layers.torch import Rearrange
-
 class PatchEmbedding(nn.Module):
-    def __init__(self, in_channels=1, height=32, width=1008, 
-                 f1=16, D=2, pooling_size1=8, pooling_size2=16, emb_size=768, dropout_rate=0.3):
+    def __init__(self, img_height=224, img_width = 224,patch_size=16, in_channels=3, embed_dim=768, withconv = True):
         super().__init__()
-        f2 = D * f1
-        self.pooling_size1 = pooling_size1
-        self.pooling_size2 = pooling_size2
 
-        self.cnn_module = nn.Sequential(
-            # Conv temporale lungo la dimensione width
-            nn.Conv2d(1, f1, (1, 64), stride=(1,1), padding=(0, 32), bias=False),
-            nn.BatchNorm2d(f1),
-            # Depth-wise conv lungo i canali EEG
-            nn.Conv2d(f1, f2, (in_channels, 1), stride=(1,1), groups=f1, padding=(0,0), bias=False),
-            nn.BatchNorm2d(f2),
-            nn.ELU(),
-            # Avg pooling 1 lungo la dimensione temporale
-            nn.AvgPool2d((1, pooling_size1)),  
-            nn.Dropout(dropout_rate),
-            # Conv spaziale
-            nn.Conv2d(f2, f2, (1, 16), padding=(0, 8), bias=False), 
-            nn.BatchNorm2d(f2),
-            nn.ELU(),
-            # Avg pooling 2
-            nn.AdaptiveAvgPool2d((1, 32)),
-            nn.Dropout(dropout_rate),  
-        )
+        height, width = img_height, img_width
+        patch_height, patch_width = patch_size, patch_size #########
+        self.patch_size = patch_size
+        self.withconv = withconv
 
-        self.projection = nn.Linear(f2, emb_size)
-        dummy_input = torch.randn(1, 1, height, width)
-        self.n_patches = self.get_n_patches(dummy_input)
+        if self.withconv:
+            print("You are using the CONV patch embedding")
+        else:
+            print("You are using the original VIT patch embedding")
+
+        assert height % patch_height == 0 and width % patch_width == 0, \
+            "Le dimensioni dell'immagine devono essere divisibili per la patch size"
+
+
+        self.n_patches = (height // patch_height) * (width // patch_width)
+        #stride = patch_size//2 
+        #padding = 0
+        #self.n_patches = int(((img_height - patch_size + 2 * padding) // stride + 1) * \
+        #                ((img_width - patch_size + 2 * padding) // stride + 1)) #patch overlap
+
+        patch_dim = in_channels * patch_height * patch_width
         
+
+        # cnn_name='resnet34'
+        # self.cnn = create_model(cnn_name, pretrained=False, features_only=True, in_chans=in_channels)
+        # self.cnn_out_dim = self.cnn.feature_info[-1]['num_chs']  # typically 512 or 2048
+
+
+        #self.conv_proj = nn.Conv2d(self.cnn_out_dim, embed_dim, kernel_size=patch_size, stride=patch_size)
+        self.conv_proj = nn.Conv2d(in_channels, embed_dim, kernel_size=(patch_height, patch_width), stride=(patch_height, patch_width) ) 
+
+        self.norm = nn.LayerNorm(embed_dim)
+        
+        #proiezione come nel paper originale con flatten
+        # (h ph) specificando ph e pw signfica fare h = (h / ph)
+        # alla fine ottengo [b, n_patches, dim_patch]
+
+        # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! HO COMMENTATO QUESTO PER RISPARMIARE MEMORIA
+        # self.vit_proj = nn.Sequential(
+        #     Rearrange('b c (h ph) (w pw) -> b (h w) (ph pw c)', 
+        #               ph=patch_height, pw=patch_width),
+        #     nn.LayerNorm(patch_dim),
+        #     nn.Linear(patch_dim, embed_dim),
+        #     nn.LayerNorm(embed_dim)
+        # )
+
+
     def forward(self, x):
-        # x: [B, 22, 32, 1008]
-        B, C, H, W = x.shape
-        x = x.unsqueeze(1)  # [B, 1, 22, 32, 1008] → conv2d vuole [B, C, H, W] quindi dobbiamo adattare
-        x = x.view(B, 1, H, W)  # ignora dimensione canali per conv2d, li trattiamo come "altezza"
-        x = self.cnn_module(x)  # [B, f2, 1, n_patches]
-        
-        x = x.squeeze(2)          # [B, f2, n_patches]
-        x = x.transpose(1, 2)     # [B, n_patches, f2]
-        x = self.projection(x)    # [B, n_patches, emb_size]
+        # x: [B, 3, 224, 224] -> [B, 768, 14, 14] -> flatten
+        if self.withconv == True:
+            #x = self.conv_proj1(x)
+            #x = self.conv_proj2(x)
+            #x = self.cnn(x)[-1]
+            x = self.conv_proj(x)  # [B, embed_dim, H', W']
+            x = x.flatten(2)  # [B, embed_dim, N]
+            x = x.transpose(1, 2)  # [B, N, embed_dim]
+            x = self.norm(x)
+        else:
+            x = self.vit_proj(x)
         return x
-    
-    def get_n_patches(self,x):
-        with torch.no_grad():
-            B, C, H, W = x.shape
-            x = x.unsqueeze(1)  # [B, 1, 22, 32, 1008] → conv2d vuole [B, C, H, W] quindi dobbiamo adattare
-            x = x.view(B, 1, H, W)  # ignora dimensione canali per conv2d, li trattiamo come "altezza"
-            x = self.cnn_module(x)  # [B, f2, 1, n_patches]
-            
-            n_patches = x.shape[-1]  # numero di patch finali
-        return n_patches
-
-
     
         
 
@@ -171,7 +176,7 @@ class ViTEncoder(nn.Module):
     def __init__(self, img_height=224, img_width=224 ,patch_size=16, in_channels=3,
                  embed_dim=768, depth=2, num_heads=2, mlp_ratio=2.0):
         super().__init__()
-        self.patch_embed = PatchEmbedding()
+        self.patch_embed = PatchEmbedding(img_height,img_width, patch_size, in_channels, embed_dim)
         n_patches = self.patch_embed.n_patches
         print("NPATCHES", n_patches)
 
@@ -237,10 +242,7 @@ class MultiChannelViT(nn.Module):
 
             # classifier per output concatenato
             self.concat_classifier = nn.Sequential(
-                nn.Linear(embed_dim * n_channels, 512),
-                nn.ReLU(),
-                nn.Dropout(0.3),
-                nn.Linear(512, num_classes)
+                nn.Linear(embed_dim * n_channels, 4)
             )
 
         else:
@@ -313,9 +315,9 @@ class MultiChannelViT(nn.Module):
             out = self.single_classifier(single_token)      # [B, num_classes]
 
         if attn:
-            return out,attn_weights
+            return out,attn_weights, concat_token
         else:
-            return out
+            return out, concat_token
 
 
 class ViTEncoderEEG(nn.Module):
@@ -352,3 +354,11 @@ class ViTEncoderEEG(nn.Module):
         outputs = self.vit(pixel_values=x)
         # CLS token come embedding globale
         return outputs.last_hidden_state[:,0]  # [B, hidden_dim]
+
+
+# model = MultiChannelViT(n_channels=22, img_height = 32, img_width = 1008, patch_size=16, embed_dim=768, num_classes=4, single=False)
+# criterion = nn.CrossEntropyLoss() #contiene già una softmax
+# optimizer = torch.optim.Adam(model.parameters(), lr=1e-4, weight_decay=1e-5)
+# dummy_input = torch.randn(8, 22, 32, 1008)  # 8 esempi, 22 canali, 32x32
+# output = model(dummy_input)  # [8, 4]
+# print(output)
