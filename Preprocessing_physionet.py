@@ -53,8 +53,16 @@ class ChannelNormalizer:
         self.fit(features)
         return self.transform(features)
 
-def preprocess_physionet(subject_id='A09', augment=False, filter="Butter", batch_size=32):
-    # Carico dati (qui assumo che read_data_physionet ritorni anche is_real se augment=True)
+def preprocess_physionet(
+    subject_id='A09',
+    augment=False,
+    filter="Butter",
+    batch_size=32,
+    train_l=0.8,
+    valid_l=0.1,
+    mode="split"  # "split" = normale, "test_only" = tutti i dati finiscono nel test set
+):
+    # Carico dati
     if augment:
         x, y, is_real = read_data_physionet(
             "./BciPhysionet", subject=subject_id, preload=True, augment=augment, filter=filter
@@ -63,60 +71,79 @@ def preprocess_physionet(subject_id='A09', augment=False, filter="Butter", batch
         x, y = read_data_physionet(
             "./BciPhysionet", subject=subject_id, preload=True, augment=augment, filter=filter
         )
-        is_real = np.ones(len(x))  # se non c'è augment, considero tutto "real"
+        is_real = np.ones(len(x))
 
-    # Split indici
-    if augment:
-        real_indices = np.where(is_real == 1)[0]
-        aug_indices  = np.where(is_real == 0)[0]
+    if mode == "split":
+        # --- Split train/val/test ---
+        if augment:
+            real_indices = np.where(is_real == 1)[0]
+            aug_indices  = np.where(is_real == 0)[0]
 
-        indices = np.random.permutation(len(real_indices))
-        train_len = int(0.8 * len(indices))
-        val_len   = int(0.1 * len(indices))
+            indices = np.random.permutation(len(real_indices))
+            train_len = int(train_l * len(indices))
+            val_len   = int(valid_l * len(indices))
 
-        train_real = real_indices[:train_len]
-        val_real   = real_indices[train_len:train_len + val_len]
-        test_real  = real_indices[train_len + val_len:]
+            train_real = real_indices[:train_len]
+            val_real   = real_indices[train_len:train_len + val_len]
+            test_real  = real_indices[train_len + val_len:]
 
-        train_indices = np.concatenate([train_real, aug_indices])
-        val_indices   = val_real
-        test_indices  = test_real
+            train_indices = np.concatenate([train_real, aug_indices])
+            val_indices   = val_real
+            test_indices  = test_real
+        else:
+            indices = np.random.permutation(len(x))
+            train_len = int(train_l * len(indices))
+            val_len   = int(valid_l * len(indices))
+
+            train_indices = indices[:train_len]
+            val_indices   = indices[train_len:train_len + val_len]
+            test_indices  = indices[train_len + val_len:]
+
+    elif mode == "test_only":
+        # --- Tutto in test ---
+        train_indices = []
+        val_indices   = []
+        test_indices  = np.arange(len(x))
+
     else:
-        indices = np.random.permutation(len(x))
-        train_len = int(0.8 * len(indices))
-        val_len   = int(0.1 * len(indices))
+        raise ValueError(f"mode deve essere 'split' o 'test_only', ricevuto {mode}")
 
-        train_indices = indices[:train_len]
-        val_indices   = indices[train_len:train_len + val_len]
-        test_indices  = indices[train_len + val_len:]
-
-    # Creo split in NumPy
+    # Split numpy
     X_train, y_train = x[train_indices], y[train_indices]
     X_val, y_val     = x[val_indices], y[val_indices]
     X_test, y_test   = x[test_indices], y[test_indices]
 
-    # Normalizzazione corretta: fit solo sul train
+    # Normalizzazione
     normalizer = ChannelNormalizer()
-    X_train = normalizer.fit_transform(X_train)
-    X_val   = normalizer.transform(X_val)
-    X_test  = normalizer.transform(X_test)
+    if len(X_train) > 0:
+        X_train = normalizer.fit_transform(X_train)
+        X_val   = normalizer.transform(X_val) if len(X_val) > 0 else X_val
+        X_test  = normalizer.transform(X_test)
+    else:
+        # se non ho train (test_only), fitto su test
+        X_test = normalizer.fit_transform(X_test)
 
-    # Morlet con standardizzazione coerente
-    X_train, mean, std = compute_morlet_spectrogram(X_train, sfreq=160, freqs=np.linspace(4, 50, 32))
-    X_val, _, _  = compute_morlet_spectrogram(X_val,  sfreq=160, freqs=np.linspace(4, 50, 32), mean=mean, std=std)
-    X_test, _, _ = compute_morlet_spectrogram(X_test, sfreq=160, freqs=np.linspace(4, 50, 32), mean=mean, std=std)
+    # Morlet
+    if len(X_train) > 0:
+        X_train, mean, std = compute_morlet_spectrogram(X_train, sfreq=160, freqs=np.linspace(4, 50, 32))
+        if len(X_val) > 0:
+            X_val, _, _ = compute_morlet_spectrogram(X_val, sfreq=160, freqs=np.linspace(4, 50, 32), mean=mean, std=std)
+        X_test, _, _ = compute_morlet_spectrogram(X_test, sfreq=160, freqs=np.linspace(4, 50, 32), mean=mean, std=std)
+    else:
+        X_test, _, _ = compute_morlet_spectrogram(X_test, sfreq=160, freqs=np.linspace(4, 50, 32))
 
-    # Creo dataset PyTorch
-    train_dataset = EEGSpectrogramDataset(X_train, y_train)
-    val_dataset   = EEGSpectrogramDataset(X_val, y_val)
+    # Dataset
+    train_dataset = EEGSpectrogramDataset(X_train, y_train) if len(X_train) > 0 else None
+    val_dataset   = EEGSpectrogramDataset(X_val, y_val) if len(X_val) > 0 else None
     test_dataset  = EEGSpectrogramDataset(X_test, y_test)
 
-    # DataLoader
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-    val_loader   = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
+    # Loader
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True) if train_dataset else None
+    val_loader   = DataLoader(val_dataset, batch_size=batch_size, shuffle=False) if (mode=="split" and val_dataset) else None
     test_loader  = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
     return train_loader, val_loader, test_loader
+
 
 
 

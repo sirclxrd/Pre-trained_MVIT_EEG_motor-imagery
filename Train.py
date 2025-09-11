@@ -31,7 +31,7 @@ LAMBDA = 0.7
 
 device = 'cuda'
 
-def frequency_masking(spectrogram, F=6):
+def frequency_masking(spectrogram, F=4):
     f = spectrogram.shape[-2]
     f0 = random.randint(0, f - F)
     spectrogram[:, :, f0:f0+F, :] = 0
@@ -51,12 +51,18 @@ def channel_dropout(spectrogram, drop_prob=0.2):
     mask = mask.to(device='cuda')
     return spectrogram * mask
 
+def additive_noise(spectrogram, noise_std=0.01):
+    """Aggiunta di rumore gaussiano"""
+    noise = torch.randn_like(spectrogram) * noise_std
+    return spectrogram + noise
+
 def random_augmentation(spectrogram):
     """
-    Applica casualmente una di queste 3 augmentations oppure nessuna:
+    Applica casualmente una di queste augmentations oppure nessuna:
     - additive_noise
     - frequency_masking
     - time_masking
+    - combinazione frequency+time
     
     Args:
         spectrogram: tensor [B, C, H, W]
@@ -65,9 +71,10 @@ def random_augmentation(spectrogram):
         spectrogram trasformato
     """
     augmentations = [
-        lambda x: frequency_masking(x, F=6),
-        lambda x: time_masking(x, T=200),
-        lambda x: frequency_masking(time_masking(x, T = 200)),        
+        lambda x: additive_noise(x, noise_std=0.01),
+        lambda x: frequency_masking(x, F=4),
+        lambda x: time_masking(x, T=100),
+        lambda x: frequency_masking(time_masking(x, T=100)),
         lambda x: x
     ]
     aug_func = random.choice(augmentations)

@@ -1,6 +1,6 @@
 from Preprocessing import prepare_dataloaders
 import numpy as np
-from torch.utils.data import Dataset, DataLoader,Subset
+from torch.utils.data import Dataset, DataLoader,Subset, ConcatDataset
 from torch.optim.lr_scheduler import LambdaLR, CosineAnnealingLR, ReduceLROnPlateau
 import torch
 from models.MVIT import MultiChannelViT
@@ -19,12 +19,14 @@ import math
 from torch.optim import AdamW
 from timm.models.vision_transformer import VisionTransformer
 
+from Preprocessing_physionet import preprocess_physionet
+
 
 
 
 device = 'cuda'
 
-def frequency_masking(spectrogram, F=15):
+def frequency_masking(spectrogram, F=6):
     f = spectrogram.shape[-2]
     f0 = random.randint(0, f - F)
     spectrogram[:, :, f0:f0+F, :] = 0
@@ -58,14 +60,15 @@ def random_augmentation(spectrogram):
         spectrogram trasformato
     """
     augmentations = [
-        lambda x: frequency_masking(x, F=15),
-        lambda x: time_masking(x, T=500),
+        lambda x: frequency_masking(x, F=6),
+        lambda x: time_masking(x, T=200),
         lambda x: frequency_masking(time_masking(x, T = 200)),        
         lambda x: x
     ]
     aug_func = random.choice(augmentations)
     return aug_func(spectrogram)
 
+LAMBDA = 0.7
 def training_epoch(model, train_loader, val_loader ,criterion, optimizer,scheduler, epoch = 0, log_file = "log.txt"):
     model.train()
     running_loss = 0.0
@@ -81,12 +84,8 @@ def training_epoch(model, train_loader, val_loader ,criterion, optimizer,schedul
         inputs = random_augmentation(inputs)
 
         optimizer.zero_grad()
-        outputs = model(inputs)
-
-        if torch.isnan(outputs).any():
-            print("NaN negli output del modello!")
-            break
-        loss = criterion(outputs, labels)
+        outputs, out2 = model(inputs)
+        loss = (1-LAMBDA) * criterion(outputs, labels) + LAMBDA*criterion(out2, labels)
         loss.backward()
         #torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0) #######
         total_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
@@ -113,7 +112,7 @@ def training_epoch(model, train_loader, val_loader ,criterion, optimizer,schedul
     append_to_log_file(log_file, txt)
 
     # Validation ogni 2 epoche
-    if (epoch + 1) % 5 == 0 and val_loader is not None:
+    if (epoch + 1) % 2 == 0 and val_loader is not None:
         batch = 0
         val_loss = 0.0
         val_correct = 0
@@ -125,8 +124,8 @@ def training_epoch(model, train_loader, val_loader ,criterion, optimizer,schedul
                 #labels = labels.to(device).long()
                 labels = labels.to(device).squeeze().long()
 
-                outputs = model(inputs)
-                loss = criterion(outputs, labels)
+                outputs, out2 = model(inputs)
+                loss = (1-LAMBDA) * criterion(outputs, labels) + LAMBDA*criterion(out2, labels)
 
                 val_loss += loss.item()
                 _, predicted = torch.max(outputs.data, 1)# cerca il massimo sulle colonne
@@ -162,10 +161,10 @@ def test_model(model, test_loader, criterion, log_file = "log.txt"):
 
             #tempo per un batch di campioni
             start_time = time.time()
-            outputs = model(inputs)
+            outputs, out2 = model(inputs)
             end_time = time.time()
-
-            loss = criterion(outputs, labels)
+   
+            loss = (1-LAMBDA) * criterion(outputs, labels) + LAMBDA*criterion(out2, labels)
             running_loss += loss.item()
 
             _, predicted = torch.max(outputs.data, 1)
@@ -298,30 +297,80 @@ if __name__ == '__main__':
     batch_size = config["train"]["batch_size"]
     val_best_acc = 0
     val_acc = 0
+    
+    if config["run"]["dataset"] == "2a" or config["run"]["dataset"] == "2b":
+        train_subjects = [f"A0{i+1}" for i in range(9)]
+        train_datasets = [
+            prepare_dataloaders(subject_id=subj, augment=config["run"]["augment"], filter=config["train"]["filter"], BCI = config["run"]["dataset"])[0]
+            for subj in train_subjects
+        ]
 
-    train_subjects = [f"A0{i+1}" for i in range(9)]
-    train_datasets = [
-        prepare_dataloaders(subject_id=subj, augment=config["run"]["augment"], filter=config["train"]["filter"], BCI = config["run"]["dataset"])[0]
-        for subj in train_subjects
-    ]
+        from torch.utils.data import ConcatDataset
+        train_dataset = ConcatDataset(train_datasets)
 
-    from torch.utils.data import ConcatDataset
-    train_dataset = ConcatDataset(train_datasets)
+        if config["run"]["val"]:
+            indices = np.random.permutation(len(train_dataset))
+            train_len = int(0.8 * len(indices))
+            train_indices = indices[:train_len]
+            val_indices = indices[train_len:]
 
-    if config["run"]["val"]:
-        indices = np.random.permutation(len(train_dataset))
-        train_len = int(0.8 * len(indices))
-        train_indices = indices[:train_len]
-        val_indices = indices[train_len:]
+            train_subset = Subset(train_dataset, train_indices)
+            val_subset = Subset(train_dataset, val_indices)
 
-        train_subset = Subset(train_dataset, train_indices)
-        val_subset = Subset(train_dataset, val_indices)
-
-        val_loader = DataLoader(val_subset, batch_size=batch_size, shuffle=False)
-        train_loader = DataLoader(train_subset, batch_size=batch_size, shuffle=True)
+            val_loader = DataLoader(val_subset, batch_size=batch_size, shuffle=False)
+            train_loader = DataLoader(train_subset, batch_size=batch_size, shuffle=True)
+        else:
+            val_loader = None
+            train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     else:
-        val_loader = None
+        all_subjects = list(range(1, 110))  # 1..109 inclusi
+        exclude = [88, 92, 100, 104]
+        subjects = [s for s in all_subjects if s not in exclude]
+
+        train_val_subjects = subjects[:84]
+        test_subjects = subjects[84:]
+
+        # ---- Colleziona i dataset ----
+        train_datasets = []
+        val_datasets = []
+        test_datasets = []
+
+        for subject in train_val_subjects:
+            subject = f"A0{subject}"
+            train_loader, val_loader, _ = preprocess_physionet(
+                subject_id=subject,
+                augment=config["run"]["augment"],
+                filter=config["train"]["filter"],
+                batch_size=batch_size,
+                train_l = 0.89,
+                valid_l = 0.10
+            )
+            # prendo i dataset interni dai loader
+            train_datasets.append(train_loader.dataset)
+            val_datasets.append(val_loader.dataset)
+
+        for subject in test_subjects:
+            subject = f"A0{subject}"
+            _, _, test_loader = preprocess_physionet(
+                subject_id=subject,
+                augment=False,  # niente augmentation nel test
+                filter=config["train"]["filter"],
+                batch_size=batch_size,
+                mode = 'test_only'
+            )
+            test_datasets.append(test_loader.dataset)
+
+        # ---- Concatena i dataset ----
+        train_dataset = ConcatDataset(train_datasets)
+        val_dataset   = ConcatDataset(val_datasets)
+        test_dataset  = ConcatDataset(test_datasets)
+
+        # ---- Crea i loader globali ----
         train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+        val_loader   = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
+        test_loader  = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+        
+        
 
 
     # per caricare il modello
@@ -341,13 +390,8 @@ if __name__ == '__main__':
     val_loss_history = []
     
     for i in range(EPOCHS):
-        if val_loader is not None and (i+1) % 5 == 0:
+        if val_loader is not None and (i+1) % 2 == 0:
             loss, epoch_accuracy, val_loss, epoch_val_accuracy = training_epoch(model, train_loader, val_loader ,criterion, optimizer, scheduler, epoch=i, log_file = log_path)
-
-            val_loss_history.append(val_loss) #media mobile per early stop
-            if len(val_loss_history) > 5:
-                val_loss_history.pop(0)
-            moving_avg = sum(val_loss_history) / len(val_loss_history)
 
             if val_loss < val_best_loss or epoch_val_accuracy > val_best_acc + 1e-3:
                 early_stop = 0
@@ -358,11 +402,11 @@ if __name__ == '__main__':
                 if epoch_val_accuracy > val_best_acc + 1e-3:
                     val_best_acc = epoch_val_accuracy
 
-                save_model(val_loss, i, model, optimizer, scheduler, save_path, config["run"]["scheduler"] )
+                save_model(val_loss, i, model, optimizer, scheduler, "pret_physio", save_path, config["run"]["scheduler"], epoch_loss, epoch_acc, epoch_val_loss, epoch_val_acc )
             else:
                 early_stop += 1
 
-            if early_stop >= 10 and stopped == False:
+            if early_stop >= 25 and stopped == False:
                 append_to_log_file(log_path, f"Early stop at epoch {i}")
                 #_, test_acc = test_model(model, test_loader=test_loader, criterion=criterion, log_file = log_path)
                 stopped = True
@@ -394,19 +438,19 @@ if __name__ == '__main__':
         print("EPOCA"+ str(i)+ " finita ")
     visualize_train_loss_acc(epoch_loss, epoch_acc, epoch_val_loss, epoch_val_acc, save_path=graphs_path + "/model_loss")
 
-    for n in range (9):
+    for n in range (21):
         # prendo train e test
         subject = "A0"+str(n+1) ##########
         print("Subject ",subject)
         print("------------------")
-        test_dataset = prepare_dataloaders(subject_id = subject, augment = config["run"]["augment"], filter=config["train"]["filter"], onlytest=True, BCI = config["run"]["dataset"]) #choose if augment dataset
-        test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+        #test_dataset = prepare_dataloaders(subject_id = subject, augment = config["run"]["augment"], filter=config["train"]["filter"], onlytest=True, BCI = config["run"]["dataset"]) #choose if augment dataset
+        #test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
         #append_to_log_file(log_path, f"Last Epoch model subject {subject}")
         #_, test_acc = test_model(model, test_loader=test_loader, criterion=criterion, log_file = log_path)
 
         print("Test", subject)
-        model = load_only_model(load_path, "model", model, config["run"]["val"]) #carica il modello con la best loss
+        model = load_only_model(load_path, "pret_physio", model, config["run"]["val"]) #carica il modello con la best loss
         txt = f"Test on subj {subject}"
         append_to_log_file(log_path, txt)
         _, test_acc = test_model(model, test_loader=test_loader, criterion=criterion, log_file = log_path)
