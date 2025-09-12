@@ -208,15 +208,17 @@ def test_model(model, test_loader, criterion, log_file = "log.txt"):
     append_to_log_file(log_file, txt)
     return avg_loss, accuracy
 
-def get_epoch_cosine_schedule_with_warmup(optimizer, warmup_epochs, total_epochs):
+def get_epoch_cosine_schedule_with_warmup(optimizer, warmup_epochs, total_epochs, min_lr_ratio=0.01):
     def lr_lambda(epoch):
         # Warmup lineare
         if epoch < warmup_epochs:
             return float(epoch + 1) / float(warmup_epochs)
-        # Decadimento lineare dopo il warmup
+        # Decadimento cosinusoidale dopo il warmup con valore minimo
         else:
             progress = (epoch - warmup_epochs) / float(total_epochs - warmup_epochs)
-            return max(0.0, 1.0 - progress)  # scende linearmente fino a 0
+            cosine_decay = 0.5 * (1.0 + math.cos(math.pi * progress))
+            # scala in modo che arrivi a min_lr_ratio invece di 0
+            return cosine_decay * (1 - min_lr_ratio) + min_lr_ratio
     
     return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
 

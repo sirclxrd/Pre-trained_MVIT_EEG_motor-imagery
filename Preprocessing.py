@@ -372,7 +372,7 @@ def read_data(path, tmin=2, tmax=6.028, is_test=False, augment = False, filter =
 
     #raw=bandpass_filter_raw(raw)
 
-    raw.set_eeg_reference()
+    raw.set_eeg_reference('average')
     events=mne.events_from_annotations(raw)
     if is_test:
         # Carico tutte le epoche disponibili (senza specificare event_id)

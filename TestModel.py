@@ -23,10 +23,16 @@ import matplotlib.pyplot as plt
 import cv2
 import torch.nn.functional as F
 
+def apply_confidence_threshold(probs, preds, thr=0.6):
+    out = preds.copy()
+    for t in range(1, len(preds)):
+        if probs[t].max() < thr:
+            out[t] = out[t-1]
+    return out
 
 
 device = 'cuda'
-def test_model(model, test_loader, criterion, log_file = "log.txt", ch=0):
+def test_model(model, test_loader, criterion, log_file = "log.txt"):
     model.to(device)
     model.eval()
 
@@ -37,22 +43,25 @@ def test_model(model, test_loader, criterion, log_file = "log.txt", ch=0):
     batch = 0
     all_preds = []
     all_labels = []
+    all_probs = []
+
 
     with torch.no_grad():
         for inputs, labels in test_loader:
-            inputs[:,ch,:,:] = 0
             inputs = inputs.to(device).float()
             labels = labels.to(device).squeeze().long()
 
             #tempo per un batch di campioni
             start_time = time.time()
-            outputs = model(inputs)
+            outputs, token = model(inputs)
             end_time = time.time()
 
             loss = criterion(outputs, labels)
             running_loss += loss.item()
-
+            
+            probs = torch.softmax(outputs, dim=1)
             _, predicted = torch.max(outputs.data, 1)
+            all_probs.append(probs.cpu().numpy())
             all_preds.append(predicted.cpu())
             all_labels.append(labels.cpu())
             total += labels.size(0)
@@ -67,9 +76,15 @@ def test_model(model, test_loader, criterion, log_file = "log.txt", ch=0):
 
     txt = f"[TEST] Loss: {avg_loss:.4f} | Accuracy: {accuracy:.4f} | Avg Inference Time: {avg_inference_time*1000:.2f} ms/sample"
     print(txt)
+    all_probs = np.concatenate(all_probs, axis=0)
     all_preds = np.concatenate(all_preds)
     all_labels = np.concatenate(all_labels)
-    #append_to_log_file(log_file, txt)
+
+    thresholded_preds = apply_confidence_threshold(all_probs, all_preds, 0.3)
+    thresholded_accuracy = (thresholded_preds == all_labels).mean()
+
+    txt = f"[TEST] Accuracy (thresholded): {thresholded_accuracy:.4f}"
+    append_to_log_file(log_file, txt)
     return avg_loss, accuracy, all_preds, all_labels
 
 def cls_token_importance(fc_layer, embed_dim=768, n_channels=22):
@@ -392,6 +407,37 @@ def extract_and_visualize_attention_channels_grid(model, dataloader, device="cud
             print(f"[saved grid] {grid_path}")
             break  # solo primo batch
 
+from sklearn.decomposition import PCA
+from sklearn.manifold import TSNE
+def extract_tsne(model, loader, subj, path):
+    model.eval()
+    features = []
+    labels = []
+
+    with torch.no_grad():
+        for x, y in loader:
+            x = x.to("cuda")  # se usi GPU
+            out, feat = model(x)    # output del modello (prima del classificatore finale)
+            features.append(feat.cpu())
+            labels.append(y)
+
+    features = torch.cat(features).numpy()
+    labels = torch.cat(labels).squeeze().numpy()
+
+    pca = PCA(n_components=50, random_state=42)
+    features_pca = pca.fit_transform(features)
+
+    tsne = TSNE(n_components=2, perplexity=30, learning_rate=200, random_state=42)
+    features_2d = tsne.fit_transform(features)
+
+    plt.figure(figsize=(8, 6))
+    for c in np.unique(labels):
+        idx = labels == c
+        plt.scatter(features_2d[idx, 0], features_2d[idx, 1], label=f"Classe {c}", alpha=0.7)
+
+    plt.legend()
+    plt.title("t-SNE delle feature della rete")
+    plt.savefig(f"{graphs_path}/tsne_features_{subj}.png", dpi=300, bbox_inches='tight')  # <--- salva l'immagine
 
 
 seed_n = 2025
@@ -433,15 +479,16 @@ for n in range(9):
     print("Epoch=", last_epoch)
     print("Train loss=", loss)
 
-    for ch in range(22): 
-        avg_loss, avg_acc, all_preds, all_labels = test_model(model, test_loader, criterion, ch=ch)
-        importances = cls_token_importance(model.concat_classifier[0])
-        append_to_log_file(log_path, f"Importances {importances}")
-        txt = f"Accuracy on {subject_test} is {avg_acc}"
-        append_to_log_file(log_path, txt)
+     
+    avg_loss, avg_acc, all_preds, all_labels = test_model(model, test_loader, criterion)
+    importances = cls_token_importance(model.concat_classifier[0])
+    append_to_log_file(log_path, f"Importances {importances}")
+    txt = f"Accuracy on {subject_test} is {avg_acc}"
+    append_to_log_file(log_path, txt)
     s_accuracy.append(avg_acc)
-    cm = confusion_matrix(all_labels, all_preds)
-    plot_confusion_matrix(cm, graphs_path+"/cm_"+subject_test)
+    #cm = confusion_matrix(all_labels, all_preds)
+    #plot_confusion_matrix(cm, graphs_path+"/cm_"+subject_test)
+    #extract_tsne(model, test_loader, subject_test, graphs_path)
     #extract_and_visualize_attention_channels_grid(model, test_loader, grid_filename=graphs_path+"/attention_grid.png")
 
 
