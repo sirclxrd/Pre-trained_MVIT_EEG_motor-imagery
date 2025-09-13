@@ -193,7 +193,9 @@ class ViTEncoder(nn.Module):
                                                    dropout=0.5
                                                    )
         #self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=depth)
-        self.encoder = encoder_layer
+        self.encoder = nn.ModuleList([
+            encoder_layer for _ in range(depth)
+        ])
 
         self.norm = nn.LayerNorm(embed_dim)
         nn.init.trunc_normal_(self.cls_token, std=0.02)
@@ -210,11 +212,12 @@ class ViTEncoder(nn.Module):
         #print("Pos",self.pos_embed.shape)
         x = x + self.pos_embed  # aggiunta positional embedding
         # print("After patch layer shape: ", x.shape)
-        if attn:
-            x, attn_weights = self.encoder(x, return_attn = True)  # [B, N+1, D]
-        else:
-            x = self.encoder(x)
-        x = self.norm(x)
+        for encoder in self.encoder:
+            if attn:
+                x, attn_weights = encoder(x, return_attn = True)  # [B, N+1, D]
+            else:
+                x = encoder(x)
+            x = self.norm(x)
 
         if attn:
             return x[:,0], attn_weights # spesso si prende x[:, 0] come rappresentazione globale (token CLS), prima riga per ogni batch
