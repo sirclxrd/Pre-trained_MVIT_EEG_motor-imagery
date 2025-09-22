@@ -169,7 +169,7 @@ class PatchEmbedding(nn.Module):
             x = self.conv_proj(x)  # [B, embed_dim, H', W']
             x = x.flatten(2)  # [B, embed_dim, N]
             x = x.transpose(1, 2)  # [B, N, embed_dim]
-            x = self.norm(x)
+            #x = self.norm(x)
         else:
             x = self.vit_proj(x)
         return x
@@ -209,6 +209,8 @@ class ViTEncoder(nn.Module):
         #self.mask_embed = torch.nn.init.xavier_normal_(self.mask_embed)
         self.norm = nn.LayerNorm(embed_dim)
         self.unfold = torch.nn.Unfold(kernel_size=(patch_size, patch_size), stride=(patch_size, patch_size))
+        self.pos_drop = nn.Dropout(p=0.2)
+
         nn.init.trunc_normal_(self.cls_token, std=0.02)
         nn.init.trunc_normal_(self.pos_embed, std=0.02)
 
@@ -300,39 +302,12 @@ class MultiChannelViT(nn.Module):
         # self.last_encoder = nn.TransformerEncoder(last_transformer, num_layers=depth)
         # self.norm = nn.LayerNorm(embed_dim)
         
-
-    def gen_maskid_patch(self, sequence_len=500, mask_size=2, cluster=3):
+    def gen_maskid_patch(self, sequence_len=500, mask_size=2):
         """
-        Genera indici casuali di patch da mascherare seguendo la logica originale SSAST.
-        
-        Args:
-            sequence_len (int): numero totale di patch (es. 512)
-            mask_size (int): numero di patch da mascherare
-            p_t_dim (int): numero di patch sulla dimensione temporale (larghezza), es. 64 - 1008/16
-            cluster (int): fattore massimo di clustering (cur_clus sarà tra 3 e 3+cluster-1)
-        
-        Returns:
-            torch.LongTensor: indici delle patch mascherate, shape (mask_size,)
+        Versione facile: maschera sempre le prime `mask_size` patch consecutive.
+        Questo permette al modello di imparare subito senza random cluster.
         """
-        mask_id = []
-
-        # randomizza clustering factor in [3, 3+cluster)
-        cur_clus = randrange(cluster) + 3
-
-        while len(set(mask_id)) <= mask_size:
-            start_id = randrange(sequence_len) #sceglie una patch a caso tra le 512
-
-            cur_mask = []
-            for i in range(cur_clus):
-                for j in range(cur_clus):
-                    mask_cand = start_id + self.p_t_dim * i + j
-                    if mask_cand >= 0 and mask_cand < sequence_len:
-                        cur_mask.append(mask_cand)
-
-            mask_id = mask_id + cur_mask
-
-        # rimuove duplicati e limita al numero richiesto
-        mask_id = list(set(mask_id))[:mask_size]
+        mask_id = list(range(mask_size))  # patch consecutive dall'inizio
         return torch.tensor(mask_id)
     
 
@@ -389,6 +364,8 @@ class MultiChannelViT(nn.Module):
         # ipotizziamo che patch_embed abbia attribute `blocks` e `pos_embed`
         x = x + encoder.pos_embed
 
+        x = encoder.pos_drop(x) ######################
+
         for enc in encoder.encoders:
             x = enc(x)
 
@@ -398,10 +375,6 @@ class MultiChannelViT(nn.Module):
         pred = torch.empty((B, mask_patch, self.patch_dim), device=x.device).float()
         for i in range(B):
             pred[i] = cpredlayer(x[i, mask_index[i] + 1, :])  # +1 per CLS token
-
-        encode_samples = (encode_samples - encode_samples.mean(dim=-1, keepdim=True)) / (encode_samples.std(dim=-1, keepdim=True) + 1e-6)
-        pred = (pred - pred.mean(dim=-1, keepdim=True)) / (pred.std(dim=-1, keepdim=True) + 1e-6)
-
 
         append_to_log_file("log.txt", f"encode_samples[{i}] mean: {encode_samples[i].mean().item()}, std: {encode_samples[i].std().item()}")
         append_to_log_file("log.txt", f"pred[{i}] mean: {pred[i].mean().item()}, std: {pred[i].std().item()}")
@@ -420,9 +393,6 @@ class MultiChannelViT(nn.Module):
         acc = 1. * correct / (B * mask_patch)
         nce = nce / (-1. * B * mask_patch)
 
-
-
-        
         if show_mask == False:
             return acc, nce
         else:
@@ -439,7 +409,6 @@ class MultiChannelViT(nn.Module):
             pred = fold(pred.transpose(1, 2))
             masked = fold(masked.transpose(1, 2))
             return pred, masked
-    
     def mpg(self, input, mask_patch, encoder, num_patches):
         B = input.shape[0]
         x = encoder.patch_embed(input)
@@ -461,7 +430,7 @@ class MultiChannelViT(nn.Module):
         x = torch.cat([cls_token, x], dim=1)
         # go through the Transformer layers
         x = x + encoder.pos_embed
-        #x = self.v.pos_drop(x) ######################
+        x = encoder.pos_drop(x)
         for enc in encoder.encoders:
             x = enc(x)
         x = encoder.norm(x) #La normalizzazione è già presente nella classe encoder
@@ -500,8 +469,10 @@ class MultiChannelViT(nn.Module):
     def pret_forward(self, x, mask_patch):
 
         B, C, H, W = x.shape
-        total_loss = 0
-        total_acc = 0
+        loss_list = []
+        acc_list = []
+        mse_list = []
+        nce_list = []
 
         for i, encoder in enumerate(self.encoders):
             print(i)
@@ -519,18 +490,19 @@ class MultiChannelViT(nn.Module):
 
             mse_loss = self.mpg(x_channel, mask_patch=mask_patch, encoder=encoder, num_patches=encoder.patch_embed.n_patches)
             append_to_log_file("loss.txt", f"nce loss: {nce}, mse loss: {mse_loss}")
-            acc = acc.mean()
-            nce = nce.mean()
-            mse_loss = mse_loss.mean()
-            total_loss += nce + 4*mse_loss
-            total_acc += acc
+            loss_list.append(nce + 4*mse_loss)
+            acc_list.append(acc)
+            mse_list.append(mse_loss)
+            nce_list.append(nce)
             #append_to_log_file("/mnt/localstorage/cdeangelis/Multi_checkpoints/MVIT_DEF_NOPRETRAIN35/log_single_config_MVIT_DEF_NOPRETRAIN35.txt", f"Channel {i}, nce loss: {nce}, mse loss: {mse_loss}, acc: {acc}")
 
         # media sulle canali
-        total_loss = total_loss / C
-        total_acc = total_acc / C
+        total_loss = torch.mean(torch.stack(loss_list))
+        total_acc  = torch.mean(torch.stack(acc_list))
+        total_mse  = torch.mean(torch.stack(mse_list))
+        total_nce  = torch.mean(torch.stack(nce_list))
 
-        return total_loss, total_acc, mse_loss, nce
+        return total_loss, total_acc, total_mse, total_nce
 
     def forward(self, x, attn = False):
         # in questo modo devo dare in input tutti gli spettrogrammi concatenati sulla profondità

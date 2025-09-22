@@ -67,9 +67,9 @@ def random_augmentation(spectrogram):
     aug_func = random.choice(augmentations)
     return aug_func(spectrogram)
 
-mask_size = 2
+mask_size = 100
 #MASK_SIZE = 1 # lo sto facendo con patch 16 e mask=100
-VAL_EPOCH = 3
+VAL_EPOCH = 10
 EARLY_STOP = 20
 TOTAL_SUBJECTS = 9
 SUBJECT = 1
@@ -89,7 +89,7 @@ def training_epoch(model, train_loader, val_loader ,criterion, optimizer,schedul
         labels = labels.to(device).squeeze().long()
 
         optimizer.zero_grad()
-        loss, acc, mse_loss, nce = model.pret_forward(inputs,mask_patch=mask_size)
+        loss, acc, mse_l, nce_l = model.pret_forward(inputs,mask_patch=mask_size)
         loss.backward()
         total_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
         #txt = f"Gradient norm: {total_norm.item()}"
@@ -97,8 +97,8 @@ def training_epoch(model, train_loader, val_loader ,criterion, optimizer,schedul
         optimizer.step()
         running_loss += loss.item()
         correct += acc.item()
-        mse_loss += mse_loss.item()
-        nce += nce.item()
+        mse_loss += mse_l.item()
+        nce += nce_l.item()
         batch = batch + 1
 
     if scheduler is not None:
@@ -273,7 +273,7 @@ if __name__ == '__main__':
             )
 
     if config["run"]["scheduler"]:
-            scheduler = get_epoch_cosine_schedule_with_warmup(optimizer, warmup_epochs=0.1*EPOCHS, total_epochs=EPOCHS)
+        scheduler = get_epoch_cosine_schedule_with_warmup(optimizer, warmup_epochs=0.1*EPOCHS, total_epochs=EPOCHS)
     else:
         scheduler = None
 
@@ -293,7 +293,7 @@ if __name__ == '__main__':
     val_acc = 0
 
     if config["run"]["dataset"] == "2a" or config["run"]["dataset"] ==  "2b":
-        train_subjects = [f"A0{i+1}" for i in range(1)]
+        train_subjects = [f"A0{i+1}" for i in range(9)]
         train_datasets = [
             prepare_dataloaders(subject_id=subj, augment=config["run"]["augment"], filter=config["train"]["filter"], BCI = config["run"]["dataset"])[0]
             for subj in train_subjects
@@ -308,11 +308,11 @@ if __name__ == '__main__':
             train_indices = indices[:train_len]
             val_indices = indices[train_len:]
 
-            # train_subset = Subset(train_dataset, train_indices)
-            # val_subset = Subset(train_dataset, val_indices)
+            train_subset = Subset(train_dataset, train_indices)
+            val_subset = Subset(train_dataset, val_indices)
 
-            train_subset = Subset(train_dataset, train_indices[:100])
-            val_subset = Subset(train_dataset, val_indices[:100])
+            # train_subset = Subset(train_dataset, train_indices[:100])
+            # val_subset = Subset(train_dataset, val_indices[:100])
 
             val_loader = DataLoader(val_subset, batch_size=batch_size, shuffle=False)
             train_loader = DataLoader(train_subset, batch_size=batch_size, shuffle=True)
@@ -325,7 +325,7 @@ if __name__ == '__main__':
         # per caricare il modello
         if config["train"]["load"] == True:
             if config["run"]["val"] == True:
-                checkpoint = torch.load(load_path + "/v_pret" + ".pth", map_location=device)
+                checkpoint = torch.load(load_path + "/model copy" + ".pth", map_location=device)
             else:
                 checkpoint = torch.load(load_path + "/model" + ".pth", map_location=device)
             model.load_state_dict(checkpoint['model_state_dict'], strict=False)
@@ -341,8 +341,8 @@ if __name__ == '__main__':
             loss, epoch_accuracy, val_loss, epoch_val_accuracy = training_epoch(model, train_loader, val_loader ,criterion, optimizer, scheduler, epoch=i, log_file = log_path)
             plot_probing_example(model, train_loader, mask_patch=mask_size, path = f"{graphs_path}/prob_epoch{i+1}.png")
 
-            if mask_size < 100:
-                mask_size += 1
+            # if mask_size < 25:
+            #     mask_size += 1
 
             val_loss_history.append(val_loss) #media mobile per early stop
             if len(val_loss_history) > 5:
