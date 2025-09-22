@@ -425,7 +425,7 @@ def read_data(path, tmin=2, tmax=6.028, is_test=False, augment = False, filter =
 
     return features,labels
 
-def read_data_2b(subject_id, base_path, tmin=0, tmax=4.540, augment=False, filter="Butter", is_test = False):
+def read_data_2b(subject_id, base_path, tmin=0, tmax=3.995, augment=False, filter="Butter", is_test = False):
     all_features = []
     all_labels = []
     subject_id = subject_id[1:3]

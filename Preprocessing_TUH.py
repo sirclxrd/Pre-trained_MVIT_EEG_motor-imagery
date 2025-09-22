@@ -1,89 +1,162 @@
-import mne
-import matplotlib.pyplot as plt
-from sklearn.preprocessing import StandardScaler
-from mne.time_frequency import tfr_array_morlet
-import numpy as np
-import matplotlib.pyplot as plt
-from utils import plot_spectrogram
 import os
-from torch.utils.data import Dataset, DataLoader,Subset
+import h5py
+import numpy as np
 import torch
-from scipy.io import loadmat
-from scipy.signal import butter, filtfilt, cheby2
-from scipy.signal import savgol_filter, stft
-from sklearn.cluster import KMeans
-from scipy.stats import pearsonr
-import random
-import scipy
-import torch.nn.functional as F
-from Preprocessing import EEGSpectrogramDataset, channel_normalization, compute_morlet_spectrogram, read_data_physionet
-from sklearn.preprocessing import StandardScaler
-import numpy as np
-from pathlib import Path
+from torch.utils.data import DataLoader, TensorDataset
+from mne.time_frequency import tfr_array_morlet  # libreria MNE
 
-'''
-In ogni paziente (000,001) ho aaaaaaaa, aaaaaaab.
-Dentro queste ho s001_2015/
-01_tcp_ar/
-aaaaaaaa_s001_t000.edf/
+class EEGFileLoader:
+    """
+    Loader EEG sequenziale: può caricare i segnali grezzi o spettrogrammi già salvati.
+    Supporta split train/validation a livello di file.
+    """
 
-montaggio elettroencefalografico utilizzato:
-(LE) Linked Ears
-(AR) Average Reference
+    def __init__(self, paths, dataset=None, znorm=True, batch_size=32, 
+                 shuffle=True, device="cpu", mode="train", split_ratio=0.8,
+                 sfreq=250, freqs=np.linspace(4, 80, 32), n_cycles=7, 
+                 load_spectrograms=False, random_seed=2025):
+        """
+        paths: lista di cartelle
+        dataset: None o '2a'/'2b'
+        znorm: applica z-normalizzazione (solo se si leggono i segnali grezzi)
+        batch_size: dimensione dei mini-batch
+        shuffle: shuffle dei batch
+        device: 'cpu' o 'cuda'
+        mode: 'train' o 'val'
+        split_ratio: percentuale di file per train
+        sfreq: frequenza di campionamento
+        freqs: array di frequenze per spettrogramma
+        n_cycles: numero di cicli della wavelet
+        load_spectrograms: se True, carica spettrogrammi già pronti invece dei segnali grezzi
+        """
+        self.paths = paths
+        self.dataset = dataset
+        self.znorm = znorm
+        self.batch_size = batch_size
+        self.shuffle = shuffle
+        self.device = device
+        self.mode = mode
+        self.split_ratio = split_ratio
+        self.sfreq = sfreq
+        self.freqs = freqs
+        self.n_cycles = n_cycles
+        self.load_spectrograms = load_spectrograms
 
-es: 
-000/aaaaaaaa/s001_2015/01_tcp_ar/aaaaaaaa_s001_t000.edf
-000/aaaaaaab/s001_2002 or s002_2002 or s003_2002/02_tcp_le/aaaaaaab_s001_t000.edf  aaaaaaab_s001_t001.edf  aaaaaaab_s001_t003.edf  aaaaaaab_s001_t004.edf  aaaaaaab_s001_t005.edf
-ultimo paziente: 150/aaaaawgc
-Struttura finale: [Paziente, Sessione, Canale, Tempo]
-'''
+        # Lista completa dei file
+        all_files = []
+        for folder in paths:
+            for fname in sorted(os.listdir(folder)):
+                if self.load_spectrograms:
+                    if fname.startswith("spectro_") and fname.endswith(".h5"):
+                        all_files.append(os.path.join(folder, fname))
+                else:
+                    if fname.endswith(".h5"):
+                        all_files.append(os.path.join(folder, fname))
 
-dataset_path = Path("../../../mnt/Datasets/TUH_EEG/v2.0.1/edf") #da qui trovo le cartelle 000, 001, 002 dei soggetti
-patient_id = "000"
-patient_path = dataset_path / patient_id
+        rng = np.random.default_rng(random_seed)
+        rng.shuffle(all_files)
 
-# Cerca tutti i file .edf ricorsivamente
-edf_files = list(patient_path.glob("**/*.edf"))
+        # split train/val
+        split_idx = int(split_ratio * len(all_files))
+        if mode == "train":
+            self.files = all_files[:split_idx]
+        elif mode == "val":
+            self.files = all_files[split_idx:]
+        else:
+            raise ValueError("mode deve essere 'train' o 'val'")
 
-# Filtra per montaggio
-montaggio_ar = []
-montaggio_le = []
+    def morlet_wavelet_fft(self,signals, freqs, n_cycles, sfreq, device='cuda'):
+        """
+        signals: [S, C, T] tensore torch
+        freqs: array di frequenze
+        n_cycles: numero di cicli della wavelet
+        sfreq: frequenza di campionamento
+        ritorna: spettrogramma [S, C, F, T] (potenza)
+        """
+        S, C, T = signals.shape
+        F = len(freqs)
+        signals = signals.to(device)
+        specs = []
 
-for f in edf_files:
-    path_str = str(f).lower()  # minuscolo per sicurezza
-    if "tcp_ar" in path_str:
-        montaggio_ar.append(f)
-    elif "tcp_le" in path_str:
-        montaggio_le.append(f)
+        # FFT del segnale una volta sola
+        sig_f = torch.fft.fft(signals, n=T, dim=-1)
 
-print(f"Trovati {len(edf_files)} file totali")
-print(f"File TCP_AR: {len(montaggio_ar)}")
-print(f"File TCP_LE: {len(montaggio_le)}")
+        for f in freqs:
+            sigma = n_cycles / (2 * np.pi * f)
+            t = torch.arange(T, device=device) / sfreq
+            wavelet = torch.exp(2j * np.pi * f * t) * torch.exp(-t**2 / (2*sigma**2))
+            wavelet = wavelet / torch.sqrt((wavelet.abs()**2).sum())  # normalizzazione energia
+            wav_f = torch.fft.fft(wavelet, n=T)
 
-import pyedflib
-import numpy as np
+            conv = torch.fft.ifft(sig_f * wav_f[None, None, :], dim=-1)
+            power = conv.abs()**2  # potenza
+            specs.append(power.unsqueeze(2))  # [S, C, 1, T]
 
-edf_file = str(montaggio_ar[0])  # esempio
-print(edf_file)
-f = pyedflib.EdfReader(edf_file)
-n_channels = f.signals_in_file
-print(n_channels)
-signal_labels = f.getSignalLabels()
-sfreq = f.getSampleFrequency(0)  # assume stessa fs per tutti i canali
-print(sfreq)
-data = np.zeros((n_channels, f.getNSamples()[0]))
-for i in range(n_channels):
-    data[i, :] = f.readSignal(i)
-f._close()
-del f
-print(f"Shape dei dati: {data.shape}, Canali: {signal_labels}, Fs: {sfreq}")
+        specs = torch.cat(specs, dim=2)  # [S, C, F, T]
+        return specs
 
+    def __iter__(self):
+        for file_path in self.files:
+            folder = os.path.dirname(file_path)
 
+            if not self.load_spectrograms and self.znorm:
+                mean = np.load(os.path.join(folder, "mean.npy")).squeeze()
+                std = np.load(os.path.join(folder, "standard_deviation.npy")).squeeze()
 
+            with h5py.File(file_path, "r") as f:
+                if self.load_spectrograms:
+                    # carica spettrogrammi già normalizzati e log trasformati
+                    data = f["spectrograms"][:]  # [S, C, F, T]
+                else:
+                    data = f["signals"][:]  # [S, C, T]
 
+            # eventuale selezione canali per 2b
+            if self.dataset == "2b":
+                special_indices = [4, 5, 17]
+                data = data[:, special_indices, :]  # operatore Ellipsis in modo da far combiare sia il caso raw che spectrogram senza specificare le dimensioni
+                if not self.load_spectrograms and self.znorm:
+                    mean = mean[special_indices]
+                    std = std[special_indices]
 
+            # se stiamo caricando i segnali grezzi, fai z-norm e Morlet
+            if not self.load_spectrograms:
+                if self.znorm:
+                    data = (data - mean[None, :, None]) / (std[None, :, None] + 1e-10)
+                # trasformazione Morlet
+                data = torch.tensor(data, dtype=torch.float32, device='cuda')
+                data = self.morlet_wavelet_fft(data, freqs=self.freqs,
+                                        n_cycles=self.n_cycles,sfreq=self.sfreq)
+                data = data.cpu()
+                # data = tfr_array_morlet(data[0:1,:,:], sfreq=self.sfreq, freqs=self.freqs,
+                #                 n_cycles=self.n_cycles, output='power', n_jobs=-1)
+                
+                data = np.log1p(data)
+                print(data.shape)
 
+            # converte in tensore PyTorch
+            tensor = torch.tensor(data, dtype=torch.float32, device=self.device)
 
+            # DataLoader per batch
+            dataset_loader = DataLoader(
+                TensorDataset(tensor),
+                batch_size=self.batch_size,
+                shuffle=self.shuffle
+            )
 
+            for batch in dataset_loader:
+                yield batch[0]  # batch[0] contiene lo spettrogramma pronto
 
+paths = [
+    "../../../mnt/localstorage/cdeangelis/Dataset_bipolar_TUH/TUAB/Normal/REF",
+    "../../../mnt/localstorage/cdeangelis/Dataset_bipolar_TUH/TUEP/Normal/REF"
+]
+train_loader = EEGFileLoader(paths, dataset="2b", znorm=True, batch_size=32, shuffle=True, mode="train", load_spectrograms = False)
+for batch in train_loader:
+    print("Batch train shape:", batch.shape)
 
+#n_canali
+#lunghezza segmento
+#Ordine dei canali
+#Shuffle sui file
+#Normalizzazione spettrogramma
+#salvare gli spettrogrammi in h5py

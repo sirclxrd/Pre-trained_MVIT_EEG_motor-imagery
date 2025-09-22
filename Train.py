@@ -96,7 +96,7 @@ def training_epoch(model, train_loader, test_loader, val_loader ,criterion, opti
         optimizer.zero_grad()
         #outputs, out2 = model(inputs)
         #loss = (1-LAMBDA) * criterion(outputs, labels) + LAMBDA*criterion(out2, labels)
-        outputs, clstoken = model(inputs)
+        outputs = model(inputs)
         loss = criterion(outputs, labels)
         
         if torch.isnan(outputs).any():
@@ -141,7 +141,7 @@ def training_epoch(model, train_loader, test_loader, val_loader ,criterion, opti
 
                 # outputs, out2 = model(inputs)
                 # loss = (1-LAMBDA) * criterion(outputs, labels) + LAMBDA*criterion(out2, labels)
-                outputs, clstoken = model(inputs)
+                outputs = model(inputs)
                 loss = criterion(outputs, labels)
 
                 val_loss += loss.item()
@@ -183,7 +183,7 @@ def test_model(model, test_loader, criterion, log_file = "log.txt"):
             #tempo per un batch di campioni
             start_time = time.time()
             #outputs, out2 = model(inputs)
-            outputs, clstoken = model(inputs)
+            outputs = model(inputs)
             end_time = time.time()
 
             #loss = (1-LAMBDA) * criterion(outputs, labels) + LAMBDA*criterion(out2, labels)
@@ -231,13 +231,39 @@ def _init_weights(m):
         nn.init.constant_(m.bias, 0)
         nn.init.constant_(m.weight, 1.0)
 
+def interpolate_pos_embed(pos_embed_checkpoint, num_patches_new):
+    # pos_embed_checkpoint: [1, old_num_patches, dim]
+    # estrai CLS (se presente)
+    cls_token = None
+    if pos_embed_checkpoint.shape[1] > num_patches_new:
+        # ci sono token extra tipo CLS
+        cls_token = pos_embed_checkpoint[:, :1, :]
+        pos_tokens = pos_embed_checkpoint[:, 1:, :]
+    else:
+        pos_tokens = pos_embed_checkpoint
+
+    old_num = pos_tokens.shape[1]
+    dim = pos_tokens.shape[2]
+    side_old = int(old_num**0.5)
+    side_new = int(num_patches_new**0.5)
+
+    pos_tokens = pos_tokens.reshape(1, side_old, side_old, dim).permute(0, 3, 1, 2)
+    pos_tokens = torch.nn.functional.interpolate(
+        pos_tokens, size=(side_new, side_new), mode='bicubic', align_corners=False
+    )
+    pos_tokens = pos_tokens.permute(0, 2, 3, 1).reshape(1, side_new*side_new, dim)
+
+    if cls_token is not None:
+        pos_tokens = torch.cat([cls_token, pos_tokens], dim=1)
+    return pos_tokens
 
 
-if __name__ == '__main__':
+def main(args, config):
     print(device)
     docker_prefix = "../../../mnt/localstorage/cdeangelis/"
 
     #seed_n = np.random.randint(2025)
+    total_test_acc = []
     seed_n = 2025
     print('seed is ' + str(seed_n))
     random.seed(seed_n)
@@ -245,12 +271,6 @@ if __name__ == '__main__':
     torch.manual_seed(seed_n)
     torch.cuda.manual_seed(seed_n)
     torch.cuda.manual_seed_all(seed_n)
-
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--config', type=str, default='configs/single_config_16_2_2.yaml')
-    args = parser.parse_args()
-    config = load_config(args.config)
-    total_test_acc = []
 
     EPOCHS = config["train"]["epochs"]
     # creo il modello
@@ -386,10 +406,23 @@ if __name__ == '__main__':
         # model_1.pth è quello di pretrain
         if config["train"]["load"] == True:
             if config["run"]["val"] == True:
-                checkpoint = torch.load(load_path + "/model_" + "1" + ".pth", map_location=device)
+                checkpoint = torch.load(load_path + "/model.pth", map_location=device)
+                state_dict = checkpoint.get("state_dict", checkpoint)
+
+                for i, encoder in enumerate(model.encoders):
+                    key = f'encoders.{i}.pos_embed'
+                    if key in state_dict and state_dict[key].shape != encoder.pos_embed.shape:
+                        state_dict[key] = interpolate_pos_embed(
+                            state_dict[key],
+                            num_patches_new=encoder.patch_embed.n_patches
+                        )
             else:
-                checkpoint = torch.load(load_path + "/" + subject + ".pth", map_location=device)
-            model.load_state_dict(checkpoint['model_state_dict'])
+                checkpoint = torch.load(load_path + f"/{subject}.pth", map_location=device)
+                state_dict = checkpoint.get("state_dict", checkpoint)
+
+            model.load_state_dict(state_dict, strict=False)
+                
+            #model.load_state_dict(checkpoint['model_state_dict'], strict=False)
             #optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
             #scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
             model.to(device)
@@ -471,3 +504,11 @@ if __name__ == '__main__':
     append_to_log_file("total.txt", txt) #per un insieme di tutti i risultati
     config_csv(config, mean_accuracy=str(np.mean(total_test_acc))) #scrive i risultati su un file csv
     subject_csv(total_test_acc, testname=config["info"]["test_name"])
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--config', type=str, default='configs/single_config_16_2_2.yaml')
+    args = parser.parse_args()
+    config = load_config(args.config)
+    main(args,config)
+    

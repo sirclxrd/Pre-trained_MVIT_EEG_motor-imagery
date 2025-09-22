@@ -8,7 +8,7 @@ from models.pret_MVIT import pret_MVIT
 import torch.nn as nn
 import time
 from utils import (visualize_train_loss_acc, load_config, create_checkpoints_folders, 
-                   append_to_log_file, load_only_model, config_csv, subject_csv, save_model)
+                   append_to_log_file, load_only_model, config_csv, subject_csv, save_model, plot_probing_example)
 import random
 import yaml
 import argparse
@@ -18,6 +18,7 @@ from math import ceil
 import math
 from torch.optim import AdamW
 from timm.models.vision_transformer import VisionTransformer
+#from Preprocessing_TUH import EEGFileLoader
 
 
 
@@ -66,54 +67,54 @@ def random_augmentation(spectrogram):
     aug_func = random.choice(augmentations)
     return aug_func(spectrogram)
 
+mask_size = 2
+#MASK_SIZE = 1 # lo sto facendo con patch 16 e mask=100
+VAL_EPOCH = 3
+EARLY_STOP = 20
+TOTAL_SUBJECTS = 9
+SUBJECT = 1
+LAMBDA = 0.7
+
 def training_epoch(model, train_loader, val_loader ,criterion, optimizer,scheduler, epoch = 0, log_file = "log.txt"):
     model.train()
     running_loss = 0.0
     correct = 0
     total = 0
     batch = 0
-
+    mse_loss = 0
+    nce = 0
+    start_time = time.time()
     for inputs, labels in train_loader:
-        #inputs = inputs.squeeze(2)
         inputs = inputs.to(device).float()
-        #labels = labels.to(device).long()
         labels = labels.to(device).squeeze().long()
-        inputs = random_augmentation(inputs)
 
         optimizer.zero_grad()
-        outputs = model(inputs)
-
-        if torch.isnan(outputs).any():
-            print("NaN negli output del modello!")
-            break
-        loss = criterion(outputs, labels)
+        loss, acc, mse_loss, nce = model.pret_forward(inputs,mask_patch=mask_size)
         loss.backward()
-        #torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0) #######
         total_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
-        if total_norm > 5.0:
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=2.0)
-        print(f"Gradient norm: {total_norm.item()}")
+        #txt = f"Gradient norm: {total_norm.item()}"
+        #append_to_log_file(log_file, txt)
         optimizer.step()
-        # if scheduler is not None:
-        #     scheduler.step()
-
         running_loss += loss.item()
-        _, predicted = torch.max(outputs.data, 1)# cerca il massimo sulle colonne
-        total += labels.size(0)
-        correct += (predicted == labels).sum().item()
+        correct += acc.item()
+        mse_loss += mse_loss.item()
+        nce += nce.item()
         batch = batch + 1
-        #print("Batch: ", batch)
 
     if scheduler is not None:
         scheduler.step()
     epoch_loss = running_loss / batch
-    epoch_acc = correct / total
-    txt = f"Epoch {epoch+1} | Train Loss: {epoch_loss:.4f} | Train Acc: {epoch_acc:.4f}"
+    epoch_acc = correct / batch
+    mse_loss = mse_loss / batch
+    nce = nce / batch
+    end_time = time.time()
+    inf_time = (end_time - start_time)
+    txt = f"Epoch {epoch+1} | Train Loss: {epoch_loss:.4f} | Train Acc: {epoch_acc:.4f} | Time: {inf_time:.2f} s | mse_loss: {mse_loss:.4f} | nce: {nce:.4f}"
     print(txt)
     append_to_log_file(log_file, txt)
 
     # Validation ogni 2 epoche
-    if (epoch + 1) % 5 == 0 and val_loader is not None:
+    if (epoch + 1) % VAL_EPOCH == 0 and val_loader is not None:
         batch = 0
         val_loss = 0.0
         val_correct = 0
@@ -122,21 +123,15 @@ def training_epoch(model, train_loader, val_loader ,criterion, optimizer,schedul
         with torch.no_grad():
             for inputs, labels in val_loader:
                 inputs = inputs.to(device).float()
-                #labels = labels.to(device).long()
                 labels = labels.to(device).squeeze().long()
-
-                outputs = model(inputs)
-                loss = criterion(outputs, labels)
-
+                loss, acc, mse, nce = model.pret_forward(inputs,mask_patch=mask_size)
                 val_loss += loss.item()
-                _, predicted = torch.max(outputs.data, 1)# cerca il massimo sulle colonne
-                val_total += labels.size(0)
-                val_correct += (predicted == labels).sum().item()
+                val_correct += acc.item()
                 batch = batch + 1
                 print("Val Batch: ", batch)
 
         val_epoch_loss = val_loss / batch
-        val_epoch_acc = val_correct / val_total
+        val_epoch_acc = val_correct / batch
         txt = f"Epoch {epoch+1} | Val Loss: {val_epoch_loss:.4f} | Val Acc: {val_epoch_acc:.4f}"
         print(txt)
         append_to_log_file(log_file,txt)
@@ -184,15 +179,17 @@ def test_model(model, test_loader, criterion, log_file = "log.txt"):
     append_to_log_file(log_file, txt)
     return avg_loss, accuracy
 
-def get_epoch_cosine_schedule_with_warmup(optimizer, warmup_epochs, total_epochs):
+def get_epoch_cosine_schedule_with_warmup(optimizer, warmup_epochs, total_epochs, min_lr_ratio=0.01):
     def lr_lambda(epoch):
         # Warmup lineare
         if epoch < warmup_epochs:
             return float(epoch + 1) / float(warmup_epochs)
-        # Decadimento lineare dopo il warmup
+        # Decadimento cosinusoidale dopo il warmup con valore minimo
         else:
             progress = (epoch - warmup_epochs) / float(total_epochs - warmup_epochs)
-            return max(0.0, 1.0 - progress)  # scende linearmente fino a 0
+            cosine_decay = 0.5 * (1.0 + math.cos(math.pi * progress))
+            # scala in modo che arrivi a min_lr_ratio invece di 0
+            return cosine_decay * (1 - min_lr_ratio) + min_lr_ratio
     
     return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
 
@@ -271,16 +268,12 @@ if __name__ == '__main__':
     optimizer = torch.optim.Adam(
             model.parameters(),
             lr=config["train"]["lr"],
-            weight_decay = 0.01        
+            weight_decay=5e-7, 
+            betas=(0.95, 0.999)        
             )
-
-    # steps_per_epoch = ceil(288 / config["train"]["batch_size"])
-    # total_steps = steps_per_epoch * EPOCHS
-    # warmup_steps = int(0.1 * total_steps)
 
     if config["run"]["scheduler"]:
             scheduler = get_epoch_cosine_schedule_with_warmup(optimizer, warmup_epochs=0.1*EPOCHS, total_epochs=EPOCHS)
-            #scheduler = CosineAnnealingLR(optimizer, T_max=EPOCHS, eta_min=5e-4)
     else:
         scheduler = None
 
@@ -299,76 +292,80 @@ if __name__ == '__main__':
     val_best_acc = 0
     val_acc = 0
 
-    train_subjects = [f"A0{i+1}" for i in range(9)]
-    train_datasets = [
-        prepare_dataloaders(subject_id=subj, augment=config["run"]["augment"], filter=config["train"]["filter"], BCI = config["run"]["dataset"])[0]
-        for subj in train_subjects
-    ]
+    if config["run"]["dataset"] == "2a" or config["run"]["dataset"] ==  "2b":
+        train_subjects = [f"A0{i+1}" for i in range(1)]
+        train_datasets = [
+            prepare_dataloaders(subject_id=subj, augment=config["run"]["augment"], filter=config["train"]["filter"], BCI = config["run"]["dataset"])[0]
+            for subj in train_subjects
+        ]
 
-    from torch.utils.data import ConcatDataset
-    train_dataset = ConcatDataset(train_datasets)
+        from torch.utils.data import ConcatDataset
+        train_dataset = ConcatDataset(train_datasets)
 
-    if config["run"]["val"]:
-        indices = np.random.permutation(len(train_dataset))
-        train_len = int(0.8 * len(indices))
-        train_indices = indices[:train_len]
-        val_indices = indices[train_len:]
+        if config["run"]["val"]:
+            indices = np.random.permutation(len(train_dataset))
+            train_len = int(0.8 * len(indices))
+            train_indices = indices[:train_len]
+            val_indices = indices[train_len:]
 
-        train_subset = Subset(train_dataset, train_indices)
-        val_subset = Subset(train_dataset, val_indices)
+            # train_subset = Subset(train_dataset, train_indices)
+            # val_subset = Subset(train_dataset, val_indices)
 
-        val_loader = DataLoader(val_subset, batch_size=batch_size, shuffle=False)
-        train_loader = DataLoader(train_subset, batch_size=batch_size, shuffle=True)
-    else:
-        val_loader = None
-        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+            train_subset = Subset(train_dataset, train_indices[:100])
+            val_subset = Subset(train_dataset, val_indices[:100])
 
-
-    # per caricare il modello
-    if config["train"]["load"] == True:
-        if config["run"]["val"] == True:
-            checkpoint = torch.load(load_path + "/val_model" + ".pth", map_location=device)
+            val_loader = DataLoader(val_subset, batch_size=batch_size, shuffle=False)
+            train_loader = DataLoader(train_subset, batch_size=batch_size, shuffle=True)
+            
         else:
-            checkpoint = torch.load(load_path + "/model" + ".pth", map_location=device)
-        model.load_state_dict(checkpoint['model_state_dict'])
-        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
-        last_epoch = checkpoint['epoch'] + 1  # Per riprendere
+            val_loader = None
+            train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+
+
+        # per caricare il modello
+        if config["train"]["load"] == True:
+            if config["run"]["val"] == True:
+                checkpoint = torch.load(load_path + "/v_pret" + ".pth", map_location=device)
+            else:
+                checkpoint = torch.load(load_path + "/model" + ".pth", map_location=device)
+            model.load_state_dict(checkpoint['model_state_dict'], strict=False)
+            optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+            scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+            last_epoch = checkpoint['epoch'] + 1  # Per riprendere
+    
         
 
     val_loss_history = []
-    
     for i in range(EPOCHS):
-        if val_loader is not None and (i+1) % 5 == 0:
+        if val_loader is not None and (i+1) % VAL_EPOCH == 0:
             loss, epoch_accuracy, val_loss, epoch_val_accuracy = training_epoch(model, train_loader, val_loader ,criterion, optimizer, scheduler, epoch=i, log_file = log_path)
+            plot_probing_example(model, train_loader, mask_patch=mask_size, path = f"{graphs_path}/prob_epoch{i+1}.png")
+
+            if mask_size < 100:
+                mask_size += 1
 
             val_loss_history.append(val_loss) #media mobile per early stop
             if len(val_loss_history) > 5:
                 val_loss_history.pop(0)
             moving_avg = sum(val_loss_history) / len(val_loss_history)
 
-            if val_loss < val_best_loss or epoch_val_accuracy > val_best_acc + 1e-3:
+            if val_loss <= val_best_loss or epoch_val_accuracy >= val_best_acc:
                 early_stop = 0
                 
-                if val_loss < val_best_loss:
+                if val_loss <= val_best_loss:
                     val_best_loss = val_loss
                     
-                if epoch_val_accuracy > val_best_acc + 1e-3:
+                if epoch_val_accuracy >= val_best_acc:
                     val_best_acc = epoch_val_accuracy
 
-                save_model(val_loss, i, model, optimizer, scheduler,"1" ,save_path, config["run"]["scheduler"] )
+                save_model(val_loss, i, model, optimizer, scheduler, "pret", save_path, config["run"]["scheduler"], epoch_loss, epoch_acc, epoch_val_loss, epoch_val_acc)
             else:
                 early_stop += 1
 
-            if early_stop >= 10 and stopped == False:
+            if early_stop >= EARLY_STOP and stopped == False:
                 append_to_log_file(log_path, f"Early stop at epoch {i}")
-                #_, test_acc = test_model(model, test_loader=test_loader, criterion=criterion, log_file = log_path)
                 stopped = True
                 break
-
-
-
-
             epoch_val_loss.append(val_loss)
             epoch_val_acc.append(epoch_val_accuracy)
         else:
@@ -397,14 +394,14 @@ if __name__ == '__main__':
         subject = "A0"+str(n+1) ##########
         print("Subject ",subject)
         print("------------------")
-        test_dataset = prepare_dataloaders(subject_id = subject, augment = config["run"]["augment"], filter=config["train"]["filter"], onlytest=True, BCI = config["run"]["dataset"]) #choose if augment dataset
+        _,test_dataset = prepare_dataloaders(subject_id = subject, augment = config["run"]["augment"], filter=config["train"]["filter"], onlytest=False, BCI = config["run"]["dataset"]) #choose if augment dataset
         test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
         #append_to_log_file(log_path, f"Last Epoch model subject {subject}")
         #_, test_acc = test_model(model, test_loader=test_loader, criterion=criterion, log_file = log_path)
 
         print("Test", subject)
-        model = load_only_model(load_path, "model", model, config["run"]["val"]) #carica il modello con la best loss
+        model = load_only_model(load_path, "pret", model, config["run"]["val"]) #carica il modello con la best loss
         txt = f"Test on subj {subject}"
         append_to_log_file(log_path, txt)
         _, test_acc = test_model(model, test_loader=test_loader, criterion=criterion, log_file = log_path)

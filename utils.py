@@ -162,7 +162,7 @@ def save_model(val_loss, i, model, optimizer, scheduler, subject, save_path, sch
                     'epoch': i,
                     'model_state_dict': model.state_dict(),
                     'optimizer_state_dict': optimizer.state_dict()
-        }, save_path + "/val_" +subject + ".pth")
+        }, save_path + "/v_" +subject + ".pth")
 
         
 
@@ -234,4 +234,70 @@ def plot_confusion_matrix(cm, save_path):
     plt.ylabel("True")
     plt.title("Confusion Matrix")
     plt.savefig(save_path)
+
+import matplotlib.pyplot as plt
+import numpy as np
+import torch
+
+def plot_probing_example(model, train_loader, mask_patch=400, channel=None, path="prob_example.png"):
+    """
+    Esegue probing su un singolo spettrogramma dal train_loader.
+    Se `channel` è un int -> mostra solo quel canale
+    Se `channel` è None -> mostra tutti i canali in colonne separate
+    """
+    model = model.cpu()
+    batch, labels = next(iter(train_loader))
+    x = batch[0:1]  # [1, C, H, W]
+    C = x.shape[1]
+
+    if channel is not None:
+        channels_to_plot = [channel]
+    else:
+        channels_to_plot = list(range(C))
+
+    fig, axs = plt.subplots(len(channels_to_plot), 3, figsize=(18, 5 * len(channels_to_plot)))
+
+    if len(channels_to_plot) == 1:
+        axs = np.expand_dims(axs, 0)
+
+    for row_idx, ch in enumerate(channels_to_plot):
+        with torch.no_grad():
+            pred, masked = model.plot_patches(x, mask_patch, channel=ch)
+
+        orig = x[0, ch].detach().cpu().numpy()
+        masked_arr = masked[0, 0].detach().cpu().numpy()
+        pred_arr = pred[0, 0].detach().cpu().numpy()
+
+        mask_positions = (masked_arr == 99)
+        correct_positions = (pred_arr == 99)
+
+        overlay_pred = np.zeros((*orig.shape, 4), dtype=np.float32)
+        overlay_pred[mask_positions & correct_positions] = [0, 1, 0, 0.4]
+        overlay_pred[mask_positions & ~correct_positions] = [1, 0, 0, 0.4]
+
+        overlay_mask = np.zeros((*orig.shape, 4), dtype=np.float32)
+        overlay_mask[mask_positions] = [0, 0, 1, 0.4]
+
+        axs[row_idx, 0].imshow(orig, aspect='auto', origin='lower', cmap='viridis')
+        axs[row_idx, 0].set_title(f"Spectrogram (ch={ch})")
+        axs[row_idx, 0].axis('off')
+
+        axs[row_idx, 1].imshow(orig, aspect='auto', origin='lower', cmap='viridis')
+        axs[row_idx, 1].imshow(overlay_mask, aspect='auto', origin='lower')
+        axs[row_idx, 1].set_title("Masked patches")
+        axs[row_idx, 1].axis('off')
+
+        axs[row_idx, 2].imshow(orig, aspect='auto', origin='lower', cmap='viridis')
+        axs[row_idx, 2].imshow(overlay_pred, aspect='auto', origin='lower')
+        axs[row_idx, 2].set_title("Correct predictions")
+        axs[row_idx, 2].axis('off')
+
+    plt.tight_layout()
+    plt.savefig(path, dpi=300)
+    plt.close(fig)
+
+    model = model.to('cuda')
+
+
+
 
