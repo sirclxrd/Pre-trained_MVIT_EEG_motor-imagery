@@ -15,73 +15,43 @@ from sklearn.cluster import KMeans
 from scipy.stats import pearsonr
 import random
 import scipy
-import numpy as np
-from scipy.linalg import fractional_matrix_power
+import torch.nn.functional as F
 
 
 
 
-LOW_FREQ = 4
-HIGH_FREQ = 38
-N_FREQ = 224
+
+LOW_FREQ = 8
+HIGH_FREQ = 30
+N_FREQ = 32
 
 class EEGSpectrogramDataset(Dataset):
-    def __init__(self, features, labels):
+    def __init__(self, features, labels, is_pretrain=False):
         self.features = torch.tensor(features, dtype=torch.float32)  # [N, 22, 32, 1008]
         self.labels = torch.tensor(labels, dtype=torch.long)
+        self.is_pretrain = is_pretrain
 
     def __len__(self):
         return len(self.features)
 
     def __getitem__(self, idx):
-        return self.features[idx], self.labels[idx]
-
-def euclidean_alignment(eeg_data: np.ndarray, R_mean_inv_sqrt= None) -> np.ndarray:
-    """
-    Applica la Euclidean Alignment (EA) ai dati EEG.
-    Allinea i dati di test e train in uno stesso spazio euclideo
-    ovvero rende la matrice di covarianza unitaria dopo al trasformazione.
-    Devo farmi restituire la matrice R_mean dai dati di train
-    poi successivamente usarla per quelli di test
-    """
-    n_trials, n_channels, n_samples = eeg_data.shape
-    
-    if R_mean_inv_sqrt is None:
-        # Calcolo matrice media delle covarianze
-        R_mean = np.zeros((n_channels, n_channels))
-        for i in range(n_trials):
-            X = eeg_data[i]
-            R = X @ X.T / n_samples
-            R_mean += R
-        R_mean /= n_trials
-        R_mean_inv_sqrt = fractional_matrix_power(R_mean, -0.5)
-    
-    # Trasformo i dati (train o test)
-    aligned_data = np.zeros_like(eeg_data, dtype=np.float32)
-    for i in range(n_trials):
-        aligned_data[i] = R_mean_inv_sqrt @ eeg_data[i]
-
-    return aligned_data, R_mean_inv_sqrt
-
-
-def trial_based_normalization(eeg_data: np.ndarray) -> np.ndarray:
-    """
-    Normalizza i dati EEG su base trial nell'intervallo [-1, 1].
-    In questo modo mantengo la proporzione interna tra canali
-    I canali sono scalati in modo uniforme e quindi restano confrontabili.
-    """
-    normalized_data = np.zeros_like(eeg_data, dtype=np.float32)
-
-    for i in range(eeg_data.shape[0]):  # per ogni trial
-        trial = eeg_data[i]
-        max_val = np.max(np.abs(trial))  # massimo in valore assoluto
-        if max_val == 0:
-            normalized_data[i] = trial  # evito divisione per zero
+        if self.is_pretrain:
+            return self.features[idx]
         else:
-            normalized_data[i] = trial / max_val
+            return self.features[idx], self.labels[idx]
 
-    return normalized_data
 
+#Normalizzazione per canale
+def channel_normalization(features):
+    n_trials, n_channels, n_times = features.shape
+    reshaped = features.transpose(1, 0, 2).reshape(n_channels, -1).T  # shape: (n_trials * n_times, n_channels)
+
+    scaler = StandardScaler()
+    normalized = scaler.fit_transform(reshaped)
+
+    # Ricomponi i dati normalizzati nella forma originale
+    features_norm = normalized.T.reshape(n_channels, n_trials, n_times).transpose(1, 0, 2)
+    return features_norm
 
 #Normalizzazione per tutti i dati
 #Con flatten i dati vengono concatenati
@@ -164,8 +134,8 @@ def segment_and_rec_total_augmentation(features, labels, dataset="2a"):
 
     if dataset == "2a":
         segment_length = 1008 // 8  # 1008 / 8
-    else:
-        segment_length = 1136 // 8
+    elif dataset == "2b":
+        segment_length = 1000 // 8
     else:
         segment_length = 480 // 8
     num_segments = 8
@@ -406,7 +376,7 @@ def read_data(path, tmin=2, tmax=6.028, is_test=False, augment = False, filter =
 
     #raw=bandpass_filter_raw(raw)
 
-    raw.set_eeg_reference()
+    raw.set_eeg_reference('average')
     events=mne.events_from_annotations(raw)
     if is_test:
         # Carico tutte le epoche disponibili (senza specificare event_id)
@@ -459,7 +429,7 @@ def read_data(path, tmin=2, tmax=6.028, is_test=False, augment = False, filter =
 
     return features,labels
 
-def read_data_2b(subject_id, base_path, tmin=0, tmax=4, augment=False, filter="Butter", is_test = False):
+def read_data_2b(subject_id, base_path, tmin=0, tmax=3.995, augment=False, filter="Butter", is_test = False, is_pretrain = False):
     all_features = []
     all_labels = []
     subject_id = subject_id[1:3]
@@ -474,13 +444,29 @@ def read_data_2b(subject_id, base_path, tmin=0, tmax=4, augment=False, filter="B
             # Leggi segnale
             raw = mne.io.read_raw_gdf(file_path, preload=True)
 
-            raw.filter(
-            l_freq=4, h_freq=38,
-            fir_design='firwin',
-            fir_window='blackman'    
-            )
+            if filter == "Butter":
+                raw.filter(
+                    l_freq=8, h_freq=30,
+                    method='iir',
+                    iir_params=dict(order=5, ftype='butter'),
+                    phase='zero'
+                )
+                LOW_FREQ = 8
+                HIGH_FREQ = 30
+            elif filter == "Cheby":
+                raw.filter(
+                    l_freq=4, h_freq=40,
+                    method='iir',
+                    iir_params=dict(order=6, ftype='cheby2', rs=40),
+                    phase='zero'
+                )
+                LOW_FREQ = 4
+                HIGH_FREQ = 40
+            else:
+                LOW_FREQ = 0.5
+                HIGH_FREQ = 100
 
-            raw.set_eeg_reference()
+            #raw.set_eeg_reference()
             events, event_dict = mne.events_from_annotations(raw)
             event_id = {'Unknown': event_dict['783']}
             selected_events = events[np.isin(events[:, 2], list(event_id.values()))]              
@@ -492,7 +478,7 @@ def read_data_2b(subject_id, base_path, tmin=0, tmax=4, augment=False, filter="B
             mat_path = os.path.join(base_path, "true_labels", f"B{subject_id}0{session}E.mat")
             true = loadmat(mat_path)
             labels = true['classlabel'] - 1  # [1, 2] → [0, 1]
-            features = trial_based_normalization(features)
+            features = channel_normalization(features)
             all_features.append(features)
             all_labels.append(labels)
         features = np.concatenate(all_features, axis=0)
@@ -502,6 +488,10 @@ def read_data_2b(subject_id, base_path, tmin=0, tmax=4, augment=False, filter="B
         print("Test dataset done")    
     else:
         for session in ['1', '2', '3']:
+            if session == '2':
+                event_id = 3
+            else:
+                event_id = 9
             print("subject_id:", subject_id)
             file_name = f"B{subject_id}0{session}T.gdf"
             file_path = os.path.join(base_path, "Train" ,file_name)
@@ -510,17 +500,42 @@ def read_data_2b(subject_id, base_path, tmin=0, tmax=4, augment=False, filter="B
             raw = mne.io.read_raw_gdf(file_path, preload=True)
             #raw.drop_channels(['EOG:ch01', 'EOG:ch02', 'EOG:ch03'])
 
-            raw.filter(
-            l_freq=4, h_freq=38,
-            fir_design='firwin',
-            fir_window='blackman'    
-            )
+            if filter == "Butter":
+                raw.filter(
+                    l_freq=8, h_freq=30,
+                    method='iir',
+                    iir_params=dict(order=5, ftype='butter'),
+                    phase='zero'
+                )
+                LOW_FREQ = 8
+                HIGH_FREQ = 30
+            elif filter == "Cheby":
+                raw.filter(
+                    l_freq=4, h_freq=40,
+                    method='iir',
+                    iir_params=dict(order=6, ftype='cheby2', rs=40),
+                    phase='zero'
+                )
+                LOW_FREQ = 4
+                HIGH_FREQ = 40
+            else:
+                LOW_FREQ = 0.5
+                HIGH_FREQ = 100
 
             #events, _ = mne.events_from_annotations(raw)
-
-            events, event_dict = mne.events_from_annotations(raw) 
-            event_id = {'Left': event_dict['769'], 'Right': event_dict['770']}
-            selected_events = events[np.isin(events[:, 2], list(event_id.values()))]              
+            if is_pretrain:
+                sfreq = raw.info['sfreq']
+                n_samples = raw.n_times
+                step = int(sfreq * 1)   # passo = 1 s, ogni finestra inizia 1s dopo la precedente
+                win = int(sfreq * 3.995)    # finestra = 4 s, lunghezza di ogni finestra, quanti campioni corrsipondono ad ogni finestra
+                # Crea eventi fittizi ogni 'step'
+                starts = np.arange(0, n_samples - win, step) #array di indici inizio di ogni finestra, va avanti ogni step, 250hz corrisponde ad 1s fino a finire il segnale
+                selected_events = np.column_stack([starts, np.zeros_like(starts, int), np.ones_like(starts, int)])
+                event_id = {'Unknown': 1}
+            else:
+                events, event_dict = mne.events_from_annotations(raw) 
+                event_id = {'Left': event_dict['769'], 'Right': event_dict['770']}
+                selected_events = events[np.isin(events[:, 2], list(event_id.values()))]              
             raw.info['bads'] += ['EOG:ch01', 'EOG:ch02', 'EOG:ch03']
             picks = mne.pick_types(raw.info, meg=False, eeg=True, eog=False, stim=False,
                             exclude='bads')
@@ -533,7 +548,7 @@ def read_data_2b(subject_id, base_path, tmin=0, tmax=4, augment=False, filter="B
             labels = true['classlabel'] - 1  # [1, 2] → [0, 1]
             # print(labels)
 
-            features = trial_based_normalization(features)
+            features = channel_normalization(features)
             all_features.append(features)
             all_labels.append(labels)# Concatena tutte le sessioni
         features = np.concatenate(all_features, axis=0)
@@ -648,15 +663,16 @@ def compute_morlet_spectrogram(features, sfreq, freqs=np.linspace(LOW_FREQ, HIGH
     """
     wvlts = tfr_array_morlet(features, sfreq=sfreq, freqs=freqs,
                              n_cycles=7, output='power', n_jobs=1)
-    # wvlts = np.log1p(wvlts)
+
+    wvlts = np.log1p(wvlts)
     
-    # mean = np.mean(wvlts, axis=(0), keepdims=True)
-    # std = np.std(wvlts, axis=(0), keepdims=True)
+    mean = np.mean(wvlts, axis=(0), keepdims=True)
+    std = np.std(wvlts, axis=(0), keepdims=True)
     
-    # wvlts = (wvlts - mean) / (std + 1e-10)
+    wvlts = (wvlts - mean) / (std + 1e-10)
     return wvlts, mean, std
 
-def prepare_dataloaders(subject_id='A09', root='./BciCompetitionIv2a/Train', onlytest = False, augment = False, filter = "Butter", BCI = "2a"):
+def prepare_dataloaders(subject_id='A09', root='./BciCompetitionIv2a/Train', onlytest = False, augment = False, filter = "Butter", BCI = "2a", is_pretrain = False, root_2b = './BciCompetitionIv2b'):
     train_path = os.path.join(root, f'{subject_id}T.gdf')
     test_path = os.path.join(root.replace('Train', 'Test'), f'{subject_id}E.gdf')
     print(f"You are using the {BCI} dataset.")
@@ -669,13 +685,11 @@ def prepare_dataloaders(subject_id='A09', root='./BciCompetitionIv2a/Train', onl
                 x_train, y_train = read_data(train_path, is_test=False, augment = augment, filter = filter)
             #x_train, y_train = read_mat_data("mymat_raw/", "A", int(subject_id[2:3]), mode='train', augment=False)
         else:
-            root_train = './BciCompetitionIv2b'
+            root_train = root_2b
             if augment == True:
-                x_train, y_train, is_real = read_data_2b(subject_id, root_train, augment=augment, filter=filter, is_test = False)
+                x_train, y_train, is_real = read_data_2b(subject_id, root_train, augment=augment, filter=filter, is_test = False, is_pretrain=is_pretrain)
             else:
-                x_train, y_train = read_data_2b(subject_id, root_train, augment=augment, filter=filter, is_test = False)
-                x_train,R = euclidean_alignment(x_train)
-
+                x_train, y_train = read_data_2b(subject_id, root_train, augment=augment, filter=filter, is_test = False, is_pretrain=is_pretrain)
         x_train, mean, std = compute_morlet_spectrogram(x_train, sfreq=250)
         print(x_train.shape)
 
@@ -684,15 +698,14 @@ def prepare_dataloaders(subject_id='A09', root='./BciCompetitionIv2a/Train', onl
             x_test, y_test = read_data(test_path, is_test=True, filter = filter)
             #x_test, y_test = read_mat_data("mymat_raw/", "A", int(subject_id[2:3]), mode='test', augment=False)
         else:
-            root_test = './BciCompetitionIv2b'
-            x_test, y_test = read_data_2b(subject_id, root_test, augment=augment, filter=filter, is_test = True)
-            x_test, R = euclidean_alignment(x_test, R)
+            root_test = root_2b
+            x_test, y_test = read_data_2b(subject_id, root_test, augment=augment, filter=filter, is_test = True, is_pretrain=is_pretrain)
         x_test, mean, std = compute_morlet_spectrogram(x_test, sfreq=250, mean=mean, std=std)
         #print(x_test.shape)
 
         # DATASET
-        train_dataset = EEGSpectrogramDataset(x_train, y_train)
-        test_dataset = EEGSpectrogramDataset(x_test, y_test)
+        train_dataset = EEGSpectrogramDataset(x_train, y_train, is_pretrain=is_pretrain)
+        test_dataset = EEGSpectrogramDataset(x_test, y_test, is_pretrain=is_pretrain)
 
         if augment:
             return train_dataset, test_dataset, is_real
@@ -702,13 +715,13 @@ def prepare_dataloaders(subject_id='A09', root='./BciCompetitionIv2a/Train', onl
         if BCI == "2a":
             x_test, y_test = read_data(test_path, is_test=True, filter = filter)
         else:
-            root_test = './BciCompetitionIv2b'
-            x_test, y_test = read_data_2b(subject_id, root_test, augment=augment, filter=filter, is_test = True)
+            root_test = root_2b
+            x_test, y_test = read_data_2b(subject_id, root_test, augment=augment, filter=filter, is_test = True, is_pretrain=is_pretrain)
         x_test = compute_morlet_spectrogram(x_test, sfreq=250, mean=mean, std=std)
         #print(x_test.shape)
 
         # DATASET
-        test_dataset = EEGSpectrogramDataset(x_test, y_test)
+        test_dataset = EEGSpectrogramDataset(x_test, y_test, is_pretrain=is_pretrain)
         return test_dataset
 
 
@@ -718,8 +731,6 @@ def prepare_dataloaders(subject_id='A09', root='./BciCompetitionIv2a/Train', onl
 # train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 # test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 # print(len(train_loader))
-
-
 
 
 
