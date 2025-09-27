@@ -245,7 +245,7 @@ class MultiChannelViT(nn.Module):
 
             # classifier per output concatenato
             self.concat_classifier = nn.Sequential(
-                nn.Linear(embed_dim * n_channels, 4)
+                nn.Linear(embed_dim * n_channels, num_classes)
             )
 
         else:

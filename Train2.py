@@ -81,7 +81,7 @@ def training_epoch(model, train_loader, val_loader ,criterion, optimizer,schedul
         inputs = random_augmentation(inputs)
 
         optimizer.zero_grad()
-        outputs = model(inputs)
+        outputs, token = model(inputs)
 
         if torch.isnan(outputs).any():
             print("NaN negli output del modello!")
@@ -125,7 +125,7 @@ def training_epoch(model, train_loader, val_loader ,criterion, optimizer,schedul
                 #labels = labels.to(device).long()
                 labels = labels.to(device).squeeze().long()
 
-                outputs = model(inputs)
+                outputs, token = model(inputs)
                 loss = criterion(outputs, labels)
 
                 val_loss += loss.item()
@@ -162,7 +162,7 @@ def test_model(model, test_loader, criterion, log_file = "log.txt"):
 
             #tempo per un batch di campioni
             start_time = time.time()
-            outputs = model(inputs)
+            outputs, token = model(inputs)
             end_time = time.time()
 
             loss = criterion(outputs, labels)
@@ -210,14 +210,12 @@ def init_weights(m):
         nn.init.zeros_(m.bias)
 
 
-if __name__ == '__main__':
+def main(args, config, docker_prefix="../../../mnt/localstorage/cdeangelis/", root_2a="./BciCompetitionIv2a/Train", root_2b = "./BciCompetitionIv2b"):
     print(device)
     #data_path = "/home/pfoggia/GenerativeAI/CELEBA/"
     #data_path = ".\CELEBA-20250604T155043Z-1-001\CELEBA"
     #save_path = "/home/C.DEANGELIS29/cond_test/VAE_models/"
     #load_path = "/home/C.DEANGELIS29/cond_test/VAE_models/ddpm3Cond98.pth"
-    docker_prefix = "../../../mnt/localstorage/cdeangelis/"
-    torch.autograd.set_detect_anomaly(True)
 
     #seed_n = np.random.randint(2025)
     seed_n = 2025
@@ -301,7 +299,7 @@ if __name__ == '__main__':
 
     train_subjects = [f"A0{i+1}" for i in range(9)]
     train_datasets = [
-        prepare_dataloaders(subject_id=subj, augment=config["run"]["augment"], filter=config["train"]["filter"], BCI = config["run"]["dataset"])[0]
+        prepare_dataloaders(subject_id=subj, augment=config["run"]["augment"], filter=config["train"]["filter"], BCI = config["run"]["dataset"], root=root_2a, root_2b = root_2b)[0]
         for subj in train_subjects
     ]
 
@@ -356,7 +354,7 @@ if __name__ == '__main__':
                 if epoch_val_accuracy > val_best_acc + 1e-3:
                     val_best_acc = epoch_val_accuracy
 
-                save_model(val_loss, i, model, optimizer, scheduler,"1" ,save_path, config["run"]["scheduler"] )
+                save_model(val_loss, i, model, optimizer, scheduler,"1" ,save_path, config["run"]["scheduler"],epoch_loss, epoch_acc, epoch_val_loss, epoch_val_acc )
             else:
                 early_stop += 1
 
@@ -419,3 +417,12 @@ if __name__ == '__main__':
     append_to_log_file("total.txt", txt) #per un insieme di tutti i risultati
     config_csv(config, mean_accuracy=str(np.mean(total_test_acc))) #scrive i risultati su un file csv
     subject_csv(total_test_acc, testname=config["info"]["test_name"])
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--config', type=str, default='configs/single_config_16_2_2.yaml')
+    args = parser.parse_args()
+    config = load_config(args.config)
+    root_2a = "../Python/BciCompetitionIv2a/Train"
+    root_2b = "../Python/BciCompetitionIv2b"
+    main(args,config, docker_prefix="../", root_2a=root_2a, root_2b = root_2b)
