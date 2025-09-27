@@ -234,7 +234,7 @@ class ViTEncoder(nn.Module):
 
 class MultiChannelViT(nn.Module):
     def __init__(self, n_channels=22, img_height=224, img_width = 224 ,patch_size=16,
-                 embed_dim=768, num_classes=4, single = False, depth = 2, num_heads = 2):
+                 embed_dim=768, num_classes=4, single = False, depth = 2, num_heads = 2, dataset = "2a"):
         super().__init__()
         if single == False:
             print("You are using MVIT")
@@ -248,11 +248,13 @@ class MultiChannelViT(nn.Module):
                 #         in_channels=1,
                 #         embed_dim=embed_dim)
 
-            param_sets = [
-            dict(patch_size=1,  patch_width = 336,  embed_dim=embed_dim, depth=depth, num_heads=num_heads),
-            dict(patch_size=32, patch_width = 1, embed_dim=embed_dim, depth=depth, num_heads=num_heads),
-            dict(patch_size=16, patch_width = 8, embed_dim=embed_dim, depth=depth, num_heads=num_heads)
-            ]
+
+            if dataset == "2a":
+                param_sets = [
+                dict(patch_size=1,  patch_width = 336,  embed_dim=embed_dim, depth=depth, num_heads=num_heads),
+                dict(patch_size=32, patch_width = 1, embed_dim=embed_dim, depth=depth, num_heads=num_heads),
+                dict(patch_size=16, patch_width = 8, embed_dim=embed_dim, depth=depth, num_heads=num_heads)
+                ]
 
             self.encoders = nn.ModuleList([
                 ViTEncoder(
