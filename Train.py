@@ -58,11 +58,10 @@ def additive_noise(spectrogram, noise_std=0.01):
 
 def random_augmentation(spectrogram):
     """
-    Applica casualmente una di queste augmentations oppure nessuna:
+    Applica casualmente una di queste 3 augmentations oppure nessuna:
     - additive_noise
     - frequency_masking
     - time_masking
-    - combinazione frequency+time
     
     Args:
         spectrogram: tensor [B, C, H, W]
@@ -71,10 +70,9 @@ def random_augmentation(spectrogram):
         spectrogram trasformato
     """
     augmentations = [
-        lambda x: additive_noise(x, noise_std=0.01),
-        lambda x: frequency_masking(x, F=4),
-        lambda x: time_masking(x, T=100),
-        lambda x: frequency_masking(time_masking(x, T=100)),
+        lambda x: frequency_masking(x, F=15),
+        lambda x: time_masking(x, T=500),
+        lambda x: frequency_masking(time_masking(x, T = 200)),        
         lambda x: x
     ]
     aug_func = random.choice(augmentations)
