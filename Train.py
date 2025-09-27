@@ -270,7 +270,7 @@ def main(args, config, docker_prefix="../../../mnt/localstorage/cdeangelis/", ro
 
         if config["run"]["pret"] == False:
         #    model_test = MultiChannelViTSelfSupervised(**config["model"])
-            model = MultiChannelViT(**config["model"])
+            model = MultiChannelViT(**config["model"], dataset=config["run"]["dataset"])
         #     reloc_loss_fn = RelativeLocalizationLoss(
         #     embed_dim=768,
         #     grid_shape=(2, 63),  # perché 32x1008 con patch 16
@@ -485,5 +485,5 @@ if __name__ == '__main__':
     args = parser.parse_args()
     config = load_config(args.config)
     root_2a = "./BciCompetitionIv2a/Train"
-    root_2b = "./BciCompetitionIv2b"
-    main(args,config, docker_prefix="../../../mnt/localstorage/cdeangelis/", root_2a=root_2a, root_2b = root_2b)
+    root_2b = "../Python/BciCompetitionIv2b"
+    main(args,config, docker_prefix = "../", root_2a=root_2a, root_2b = root_2b)
