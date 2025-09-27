@@ -3,7 +3,7 @@ import numpy as np
 from torch.utils.data import Dataset, DataLoader,Subset
 from torch.optim.lr_scheduler import LambdaLR, CosineAnnealingLR
 import torch
-from models.MVIT import MultiChannelViT, MultiChannelViTSelfSupervised
+from models.MVIT import MultiChannelViT
 from models.pret_MVIT import pret_MVIT
 import torch.nn as nn
 import time
@@ -18,12 +18,11 @@ from math import ceil
 import math
 from torch.optim import AdamW
 from torch.cuda.amp import autocast, GradScaler
-
 from Preprocessing_physionet import preprocess_physionet
-from Preprocessing_2a import preprocess_2a
+
 
 VAL_EPOCH = 2
-EARLY_STOP = 15
+EARLY_STOP = 20
 TOTAL_SUBJECTS = 9
 SUBJECT = 1
 LAMBDA = 0.7
@@ -31,7 +30,7 @@ LAMBDA = 0.7
 
 device = 'cuda'
 
-def frequency_masking(spectrogram, F=4):
+def frequency_masking(spectrogram, F=15):
     f = spectrogram.shape[-2]
     f0 = random.randint(0, f - F)
     spectrogram[:, :, f0:f0+F, :] = 0
@@ -50,11 +49,6 @@ def channel_dropout(spectrogram, drop_prob=0.2):
     mask = mask.float().view(1, C, 1, 1)
     mask = mask.to(device='cuda')
     return spectrogram * mask
-
-def additive_noise(spectrogram, noise_std=0.01):
-    """Aggiunta di rumore gaussiano"""
-    noise = torch.randn_like(spectrogram) * noise_std
-    return spectrogram + noise
 
 def random_augmentation(spectrogram):
     """
@@ -100,16 +94,16 @@ def training_epoch(model, train_loader, test_loader, val_loader ,criterion, opti
         inputs = random_augmentation(inputs)
 
         optimizer.zero_grad()
-        outputs, out2 = model(inputs)
-        loss = (1-LAMBDA) * criterion(outputs, labels) + LAMBDA*criterion(out2, labels)
-        # outputs = model(inputs)
-        # loss = criterion(outputs, labels)
+        #outputs, out2 = model(inputs)
+        #loss = (1-LAMBDA) * criterion(outputs, labels) + LAMBDA*criterion(out2, labels)
+        outputs, clstoken = model(inputs)
+        loss = criterion(outputs, labels)
         
         if torch.isnan(outputs).any():
             print("NaN negli output del modello!")
             break
         loss.backward()
-        total_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
+        total_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=2.0)
         txt = f"Gradient norm: {total_norm.item()}"
         append_to_log_file(log_file, txt)
         optimizer.step()
@@ -145,10 +139,10 @@ def training_epoch(model, train_loader, test_loader, val_loader ,criterion, opti
                 #labels = labels.to(device).long()
                 labels = labels.to(device).squeeze().long()
 
-                outputs, out2 = model(inputs)
-                loss = (1-LAMBDA) * criterion(outputs, labels) + LAMBDA*criterion(out2, labels)
-                # outputs = model(inputs)
-                # loss = criterion(outputs, labels)
+                # outputs, out2 = model(inputs)
+                # loss = (1-LAMBDA) * criterion(outputs, labels) + LAMBDA*criterion(out2, labels)
+                outputs, clstoken = model(inputs)
+                loss = criterion(outputs, labels)
 
                 val_loss += loss.item()
                 predicted = outputs.argmax(dim=1)# cerca il massimo sulle colonne
@@ -188,13 +182,13 @@ def test_model(model, test_loader, criterion, log_file = "log.txt"):
 
             #tempo per un batch di campioni
             start_time = time.time()
-            outputs, out2 = model(inputs)
-            #outputs = model(inputs)
+            #outputs, out2 = model(inputs)
+            outputs, clstoken = model(inputs)
             end_time = time.time()
 
-            loss = (1-LAMBDA) * criterion(outputs, labels) + LAMBDA*criterion(out2, labels)
+            #loss = (1-LAMBDA) * criterion(outputs, labels) + LAMBDA*criterion(out2, labels)
 
-            #loss = criterion(outputs, labels)
+            loss = criterion(outputs, labels)
             running_loss += loss.item()
 
 
@@ -214,15 +208,17 @@ def test_model(model, test_loader, criterion, log_file = "log.txt"):
     append_to_log_file(log_file, txt)
     return avg_loss, accuracy
 
-def get_epoch_cosine_schedule_with_warmup(optimizer, warmup_epochs, total_epochs):
+def get_epoch_cosine_schedule_with_warmup(optimizer, warmup_epochs, total_epochs, min_lr_ratio=0.01):
     def lr_lambda(epoch):
         # Warmup lineare
         if epoch < warmup_epochs:
             return float(epoch + 1) / float(warmup_epochs)
-        # Decadimento lineare dopo il warmup
+        # Decadimento cosinusoidale dopo il warmup con valore minimo
         else:
             progress = (epoch - warmup_epochs) / float(total_epochs - warmup_epochs)
-            return max(0.0, 1.0 - progress)  # scende linearmente fino a 0
+            cosine_decay = 0.5 * (1.0 + math.cos(math.pi * progress))
+            # scala in modo che arrivi a min_lr_ratio invece di 0
+            return cosine_decay * (1 - min_lr_ratio) + min_lr_ratio
     
     return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
 
@@ -237,7 +233,7 @@ def _init_weights(m):
 
 
 
-def main(args, config, docker_prefix="../../../mnt/localstorage/cdeangelis/", root_2a='./BciCompetitionIv2a/Train', root_2b = './BciCompetitionIv2b'):
+def main(args,config, docker_prefix = "../../../mnt/localstorage/cdeangelis/", root_2a = "./BciCompetitionIv2a/Train", root_2b = "./BciCompetitionIv2b"):
     print(device)
 
     #seed_n = np.random.randint(2025)
@@ -248,7 +244,6 @@ def main(args, config, docker_prefix="../../../mnt/localstorage/cdeangelis/", ro
     torch.manual_seed(seed_n)
     torch.cuda.manual_seed(seed_n)
     torch.cuda.manual_seed_all(seed_n)
-
     total_test_acc = []
 
     EPOCHS = config["train"]["epochs"]
@@ -259,16 +254,13 @@ def main(args, config, docker_prefix="../../../mnt/localstorage/cdeangelis/", ro
     save_path = save_path
     print("Save_path:",save_path)
 
-    skip_subjects = [87, 91, 99, 103]
     for n in range (TOTAL_SUBJECTS):
-        if n in skip_subjects:
-            continue #skippa l'iterazione
         early_stop = 0
         stopped = False
 
         if config["run"]["pret"] == False:
         #    model_test = MultiChannelViTSelfSupervised(**config["model"])
-            model = MultiChannelViT(**config["model"], dataset=config["run"]["dataset"])
+            model = MultiChannelViT(**config["model"])
         #     reloc_loss_fn = RelativeLocalizationLoss(
         #     embed_dim=768,
         #     grid_shape=(2, 63),  # perché 32x1008 con patch 16
@@ -318,7 +310,7 @@ def main(args, config, docker_prefix="../../../mnt/localstorage/cdeangelis/", ro
             model.parameters(),
             lr=config["train"]["lr"],
             weight_decay = 0.01        
-            )
+            )   
 
         if config["run"]["scheduler"]:
             scheduler = get_epoch_cosine_schedule_with_warmup(optimizer, warmup_epochs=0.05*EPOCHS, total_epochs=EPOCHS)
@@ -384,26 +376,24 @@ def main(args, config, docker_prefix="../../../mnt/localstorage/cdeangelis/", ro
             #################################
             test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
-
-
-
-
         # per caricare il modello, RICORDA DI CONTROLLARE ANCHE SE SAVE_MODEL E' LO STESSO
+        # model_1.pth è quello di pretrain
         if config["train"]["load"] == True:
             if config["run"]["val"] == True:
-                checkpoint = torch.load(load_path + "/val_M" + subject + ".pth", map_location=device)
+                checkpoint = torch.load(load_path + "/model_" + "1" + ".pth", map_location=device)
             else:
                 checkpoint = torch.load(load_path + "/" + subject + ".pth", map_location=device)
             model.load_state_dict(checkpoint['model_state_dict'])
             #optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-            scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+            #scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
             model.to(device)
+            #last_epoch = checkpoint['epoch'] + 1  # Per riprendere
             if 'epoch_loss' in checkpoint:
                 epoch_loss= checkpoint['epoch_loss']
                 epoch_acc= checkpoint['epoch_acc']
                 epoch_val_loss= checkpoint['epoch_val_loss']
                 epoch_val_acc= checkpoint['epoch_val_acc']
-            #last_epoch = checkpoint['epoch'] + 1  # Per riprendere
+
             # import copy
             # model.encoder = copy.deepcopy(model_test.encoder)
             # for param in model.parameters():
@@ -424,7 +414,7 @@ def main(args, config, docker_prefix="../../../mnt/localstorage/cdeangelis/", ro
                     if epoch_val_accuracy >= val_best_acc:
                         val_best_acc = epoch_val_accuracy
                         
-                    save_model(val_loss, i, model, optimizer, scheduler, subject, save_path, config["run"]["scheduler"], epoch_loss, epoch_acc, epoch_val_loss, epoch_val_acc )
+                    save_model(val_loss, i, model, optimizer, scheduler, subject, save_path, config["run"]["scheduler"], epoch_loss, epoch_acc, epoch_val_loss, epoch_val_acc)
                 else:
                     early_stop += 1
 
@@ -459,7 +449,6 @@ def main(args, config, docker_prefix="../../../mnt/localstorage/cdeangelis/", ro
         visualize_train_loss_acc(epoch_loss, epoch_acc, epoch_val_loss, epoch_val_acc, save_path=graphs_path + "/" +subject)
         if config["run"]["save"] == False:
             os.remove(load_path + "/" + subject + ".pth")
-            os.remove(load_path + "/v_" + subject + ".pth")
     print("The mean accuracy is: ",np.mean(total_test_acc))
     txt = f"The mean accuracy is: {np.mean(total_test_acc)}"
     append_to_log_file(log_path, txt)
@@ -473,6 +462,6 @@ if __name__ == '__main__':
     parser.add_argument('--config', type=str, default='configs/single_config_16_2_2.yaml')
     args = parser.parse_args()
     config = load_config(args.config)
-    root_2a = "./BciCompetitionIv2a/Train"
+    root_2a = "../Python/BciCompetitionIv2a/Train"
     root_2b = "../Python/BciCompetitionIv2b"
-    main(args,config, docker_prefix = "../", root_2a=root_2a, root_2b = root_2b)
+    main(args,config, docker_prefix="../", root_2a=root_2a, root_2b = root_2b)
