@@ -15,6 +15,8 @@ from sklearn.cluster import KMeans
 from scipy.stats import pearsonr
 import random
 import scipy
+import torch.nn.functional as F
+
 
 
 
@@ -24,15 +26,19 @@ HIGH_FREQ = 30
 N_FREQ = 32
 
 class EEGSpectrogramDataset(Dataset):
-    def __init__(self, features, labels):
+    def __init__(self, features, labels, is_pretrain=False):
         self.features = torch.tensor(features, dtype=torch.float32)  # [N, 22, 32, 1008]
         self.labels = torch.tensor(labels, dtype=torch.long)
+        self.is_pretrain = is_pretrain
 
     def __len__(self):
         return len(self.features)
 
     def __getitem__(self, idx):
-        return self.features[idx], self.labels[idx]
+        if self.is_pretrain:
+            return self.features[idx]
+        else:
+            return self.features[idx], self.labels[idx]
 
 
 #Normalizzazione per canale
@@ -128,8 +134,8 @@ def segment_and_rec_total_augmentation(features, labels, dataset="2a"):
 
     if dataset == "2a":
         segment_length = 1008 // 8  # 1008 / 8
-    else:
-        segment_length = 1136 // 8
+    elif dataset == "2b":
+        segment_length = 1000 // 8
     else:
         segment_length = 480 // 8
     num_segments = 8
@@ -370,7 +376,7 @@ def read_data(path, tmin=2, tmax=6.028, is_test=False, augment = False, filter =
 
     #raw=bandpass_filter_raw(raw)
 
-    raw.set_eeg_reference()
+    raw.set_eeg_reference('average')
     events=mne.events_from_annotations(raw)
     if is_test:
         # Carico tutte le epoche disponibili (senza specificare event_id)
@@ -423,7 +429,7 @@ def read_data(path, tmin=2, tmax=6.028, is_test=False, augment = False, filter =
 
     return features,labels
 
-def read_data_2b(subject_id, base_path, tmin=0, tmax=4.540, augment=False, filter="Butter", is_test = False):
+def read_data_2b(subject_id, base_path, tmin=0, tmax=3.995, augment=False, filter="Butter", is_test = False, is_pretrain = False):
     all_features = []
     all_labels = []
     subject_id = subject_id[1:3]
@@ -460,7 +466,7 @@ def read_data_2b(subject_id, base_path, tmin=0, tmax=4.540, augment=False, filte
                 LOW_FREQ = 0.5
                 HIGH_FREQ = 100
 
-            raw.set_eeg_reference()
+            #raw.set_eeg_reference()
             events, event_dict = mne.events_from_annotations(raw)
             event_id = {'Unknown': event_dict['783']}
             selected_events = events[np.isin(events[:, 2], list(event_id.values()))]              
@@ -517,10 +523,19 @@ def read_data_2b(subject_id, base_path, tmin=0, tmax=4.540, augment=False, filte
                 HIGH_FREQ = 100
 
             #events, _ = mne.events_from_annotations(raw)
-
-            events, event_dict = mne.events_from_annotations(raw) 
-            event_id = {'Left': event_dict['769'], 'Right': event_dict['770']}
-            selected_events = events[np.isin(events[:, 2], list(event_id.values()))]              
+            if is_pretrain:
+                sfreq = raw.info['sfreq']
+                n_samples = raw.n_times
+                step = int(sfreq * 1)   # passo = 1 s, ogni finestra inizia 1s dopo la precedente
+                win = int(sfreq * 3.995)    # finestra = 4 s, lunghezza di ogni finestra, quanti campioni corrsipondono ad ogni finestra
+                # Crea eventi fittizi ogni 'step'
+                starts = np.arange(0, n_samples - win, step) #array di indici inizio di ogni finestra, va avanti ogni step, 250hz corrisponde ad 1s fino a finire il segnale
+                selected_events = np.column_stack([starts, np.zeros_like(starts, int), np.ones_like(starts, int)])
+                event_id = {'Unknown': 1}
+            else:
+                events, event_dict = mne.events_from_annotations(raw) 
+                event_id = {'Left': event_dict['769'], 'Right': event_dict['770']}
+                selected_events = events[np.isin(events[:, 2], list(event_id.values()))]              
             raw.info['bads'] += ['EOG:ch01', 'EOG:ch02', 'EOG:ch03']
             picks = mne.pick_types(raw.info, meg=False, eeg=True, eog=False, stim=False,
                             exclude='bads')
@@ -641,14 +656,14 @@ def compute_morlet_spectrogram(features, sfreq, freqs=np.linspace(LOW_FREQ, HIGH
     """
     features: ndarray (n_epochs, n_channels, n_times)
     sfreq: frequenza di campionamento (Hz), per BCIC IV 2a è 250 Hz
-    freqs: array di frequenze su cui viene calcolata la wavelet, il mio segnale è [4,40]Hz quindi ne faccio 32 per coprirlo tutto
-    ed avere immagini 32x1000
-    n_cycles: indica quanto è lunga l'onda, compromesso tempo frequenza. 
+    freqs: array di frequenze su cui è centrata la wavelet
+    n_cycles: indica quanto è lunga l'onda wavelet, compromesso tempo frequenza. 
     Ogni onda wavelet ha una determinata frequenza, n_cycles definisce il numero di cicli e quindi quanto è larga
     Piu' è larga più è precisa in frequenza ma meno in tempo, io la faccio diventare più larga man mano che crescono le frequenze
     """
     wvlts = tfr_array_morlet(features, sfreq=sfreq, freqs=freqs,
-                             n_cycles=7, output='power', decim=1, n_jobs=1)
+                             n_cycles=7, output='power', n_jobs=1)
+
     wvlts = np.log1p(wvlts)
     
     mean = np.mean(wvlts, axis=(0), keepdims=True)
@@ -657,7 +672,7 @@ def compute_morlet_spectrogram(features, sfreq, freqs=np.linspace(LOW_FREQ, HIGH
     wvlts = (wvlts - mean) / (std + 1e-10)
     return wvlts, mean, std
 
-def prepare_dataloaders(subject_id='A09', root='./BciCompetitionIv2a/Train', onlytest = False, augment = False, filter = "Butter", BCI = "2a"):
+def prepare_dataloaders(subject_id='A09', root='./BciCompetitionIv2a/Train', onlytest = False, augment = False, filter = "Butter", BCI = "2a", is_pretrain = False, root_2b = './BciCompetitionIv2b'):
     train_path = os.path.join(root, f'{subject_id}T.gdf')
     test_path = os.path.join(root.replace('Train', 'Test'), f'{subject_id}E.gdf')
     print(f"You are using the {BCI} dataset.")
@@ -670,11 +685,11 @@ def prepare_dataloaders(subject_id='A09', root='./BciCompetitionIv2a/Train', onl
                 x_train, y_train = read_data(train_path, is_test=False, augment = augment, filter = filter)
             #x_train, y_train = read_mat_data("mymat_raw/", "A", int(subject_id[2:3]), mode='train', augment=False)
         else:
-            root_train = './BciCompetitionIv2b'
+            root_train = root_2b
             if augment == True:
-                x_train, y_train, is_real = read_data_2b(subject_id, root_train, augment=augment, filter=filter, is_test = False)
+                x_train, y_train, is_real = read_data_2b(subject_id, root_train, augment=augment, filter=filter, is_test = False, is_pretrain=is_pretrain)
             else:
-                x_train, y_train = read_data_2b(subject_id, root_train, augment=augment, filter=filter, is_test = False)
+                x_train, y_train = read_data_2b(subject_id, root_train, augment=augment, filter=filter, is_test = False, is_pretrain=is_pretrain)
         x_train, mean, std = compute_morlet_spectrogram(x_train, sfreq=250)
         print(x_train.shape)
 
@@ -683,14 +698,14 @@ def prepare_dataloaders(subject_id='A09', root='./BciCompetitionIv2a/Train', onl
             x_test, y_test = read_data(test_path, is_test=True, filter = filter)
             #x_test, y_test = read_mat_data("mymat_raw/", "A", int(subject_id[2:3]), mode='test', augment=False)
         else:
-            root_test = './BciCompetitionIv2b'
-            x_test, y_test = read_data_2b(subject_id, root_test, augment=augment, filter=filter, is_test = True)
+            root_test = root_2b
+            x_test, y_test = read_data_2b(subject_id, root_test, augment=augment, filter=filter, is_test = True, is_pretrain=is_pretrain)
         x_test, mean, std = compute_morlet_spectrogram(x_test, sfreq=250, mean=mean, std=std)
         #print(x_test.shape)
 
         # DATASET
-        train_dataset = EEGSpectrogramDataset(x_train, y_train)
-        test_dataset = EEGSpectrogramDataset(x_test, y_test)
+        train_dataset = EEGSpectrogramDataset(x_train, y_train, is_pretrain=is_pretrain)
+        test_dataset = EEGSpectrogramDataset(x_test, y_test, is_pretrain=is_pretrain)
 
         if augment:
             return train_dataset, test_dataset, is_real
@@ -700,13 +715,13 @@ def prepare_dataloaders(subject_id='A09', root='./BciCompetitionIv2a/Train', onl
         if BCI == "2a":
             x_test, y_test = read_data(test_path, is_test=True, filter = filter)
         else:
-            root_test = './BciCompetitionIv2b'
-            x_test, y_test = read_data_2b(subject_id, root_test, augment=augment, filter=filter, is_test = True)
+            root_test = root_2b
+            x_test, y_test = read_data_2b(subject_id, root_test, augment=augment, filter=filter, is_test = True, is_pretrain=is_pretrain)
         x_test = compute_morlet_spectrogram(x_test, sfreq=250, mean=mean, std=std)
         #print(x_test.shape)
 
         # DATASET
-        test_dataset = EEGSpectrogramDataset(x_test, y_test)
+        test_dataset = EEGSpectrogramDataset(x_test, y_test, is_pretrain=is_pretrain)
         return test_dataset
 
 
@@ -716,8 +731,6 @@ def prepare_dataloaders(subject_id='A09', root='./BciCompetitionIv2a/Train', onl
 # train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 # test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 # print(len(train_loader))
-
-
 
 
 
