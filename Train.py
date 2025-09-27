@@ -449,15 +449,6 @@ def main(args, config, docker_prefix="../../../mnt/localstorage/cdeangelis/", ro
             epoch_loss.append(loss)
             epoch_acc.append(epoch_accuracy)
 
-            if loss < best_loss:
-                best_loss = loss
-                torch.save({
-                    'loss': loss,
-                    'epoch': i,
-                    'model_state_dict': model.state_dict(),
-                    'optimizer_state_dict': optimizer.state_dict()
-                }, save_path + "/" +subject + ".pth")
-
             
             print("EPOCA"+ str(i)+ " finita ")
         
