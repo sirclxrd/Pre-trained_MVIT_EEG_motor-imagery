@@ -263,7 +263,7 @@ def main(args, config, docker_prefix = "../../../mnt/localstorage/cdeangelis/", 
 
         if config["run"]["pret"] == False:
         #    model_test = MultiChannelViTSelfSupervised(**config["model"])
-            model = MultiChannelViT(**config["model"])
+            model = MultiChannelViT(**config["model"], dataset=config["run"]["dataset"])
         #     reloc_loss_fn = RelativeLocalizationLoss(
         #     embed_dim=768,
         #     grid_shape=(2, 63),  # perché 32x1008 con patch 16

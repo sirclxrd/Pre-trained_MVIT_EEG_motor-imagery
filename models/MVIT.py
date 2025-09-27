@@ -249,9 +249,21 @@ class MultiChannelViT(nn.Module):
                 #         embed_dim=embed_dim)
 
 
-            if dataset == "2a":
+            if dataset.lower() == "2a":
                 param_sets = [
                 dict(patch_size=1,  patch_width = 336,  embed_dim=embed_dim, depth=depth, num_heads=num_heads),
+                dict(patch_size=32, patch_width = 1, embed_dim=embed_dim, depth=depth, num_heads=num_heads),
+                dict(patch_size=16, patch_width = 8, embed_dim=embed_dim, depth=depth, num_heads=num_heads)
+                ]
+            elif dataset.lower() == "2b":
+                param_sets = [
+                dict(patch_size=1,  patch_width = 125,  embed_dim=embed_dim, depth=depth, num_heads=num_heads),
+                dict(patch_size=32, patch_width = 1, embed_dim=embed_dim, depth=depth, num_heads=num_heads),
+                dict(patch_size=16, patch_width = 8, embed_dim=embed_dim, depth=depth, num_heads=num_heads)
+                ]
+            elif dataset.lower() == "physionet":
+                param_sets = [
+                dict(patch_size=1,  patch_width = 160,  embed_dim=embed_dim, depth=depth, num_heads=num_heads),
                 dict(patch_size=32, patch_width = 1, embed_dim=embed_dim, depth=depth, num_heads=num_heads),
                 dict(patch_size=16, patch_width = 8, embed_dim=embed_dim, depth=depth, num_heads=num_heads)
                 ]
