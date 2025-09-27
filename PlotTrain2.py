@@ -67,7 +67,7 @@ def random_augmentation(spectrogram):
     aug_func = random.choice(augmentations)
     return aug_func(spectrogram)
 
-mask_size = 250 
+mask_size = 100
 #MASK_SIZE = 1 # lo sto facendo con patch 16 e mask=100
 VAL_EPOCH = 10
 EARLY_STOP = 20
@@ -293,7 +293,7 @@ if __name__ == '__main__':
     val_acc = 0
 
     if config["run"]["dataset"] == "2a" or config["run"]["dataset"] ==  "2b":
-        train_subjects = [f"A0{i+1}" for i in range(9)]
+        train_subjects = [f"A0{i+1}" for i in range(1)]
         train_datasets = [
             prepare_dataloaders(subject_id=subj, augment=config["run"]["augment"], filter=config["train"]["filter"], BCI = config["run"]["dataset"])[0]
             for subj in train_subjects
@@ -308,11 +308,11 @@ if __name__ == '__main__':
             train_indices = indices[:train_len]
             val_indices = indices[train_len:]
 
-            train_subset = Subset(train_dataset, train_indices)
-            val_subset = Subset(train_dataset, val_indices)
+            # train_subset = Subset(train_dataset, train_indices)
+            # val_subset = Subset(train_dataset, val_indices)
 
-            # train_subset = Subset(train_dataset, train_indices[:100])
-            # val_subset = Subset(train_dataset, val_indices[:100])
+            train_subset = Subset(train_dataset, train_indices[:100])
+            val_subset = Subset(train_dataset, val_indices[:100])
 
             val_loader = DataLoader(val_subset, batch_size=batch_size, shuffle=False)
             train_loader = DataLoader(train_subset, batch_size=batch_size, shuffle=True)
@@ -330,7 +330,7 @@ if __name__ == '__main__':
                 checkpoint = torch.load(load_path + "/model" + ".pth", map_location=device)
             model.load_state_dict(checkpoint['model_state_dict'], strict=False)
             optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-            scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+            #scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
             last_epoch = checkpoint['epoch'] + 1  # Per riprendere
     
         
@@ -338,7 +338,6 @@ if __name__ == '__main__':
     val_loss_history = []
     for i in range(EPOCHS):
         if val_loader is not None and (i+1) % VAL_EPOCH == 0:
-            loss, epoch_accuracy, val_loss, epoch_val_accuracy = training_epoch(model, train_loader, val_loader ,criterion, optimizer, scheduler, epoch=i, log_file = log_path)
             plot_probing_example(model, train_loader, mask_patch=mask_size, path = f"{graphs_path}/prob_epoch{i+1}.png")
 
             # if mask_size < 25:
@@ -369,7 +368,7 @@ if __name__ == '__main__':
             epoch_val_loss.append(val_loss)
             epoch_val_acc.append(epoch_val_accuracy)
         else:
-            loss, epoch_accuracy = training_epoch(model, train_loader, val_loader ,criterion, optimizer, scheduler, epoch=i, log_file = log_path)
+            plot_probing_example(model, train_loader, mask_patch=mask_size, path = f"{graphs_path}/prob_epoch{i+1}.png")
             
 
         epoch_loss.append(loss)
@@ -381,8 +380,8 @@ if __name__ == '__main__':
                 'loss': loss,
                 'epoch': i,
                 'model_state_dict': model.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict(),
-                'scheduler_state_dict': scheduler.state_dict()
+                'optimizer_state_dict': optimizer.state_dict()
+                #'scheduler_state_dict': scheduler.state_dict()
             }, save_path + "/model" +".pth")
 
         

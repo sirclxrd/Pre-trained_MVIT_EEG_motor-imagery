@@ -49,74 +49,6 @@ def channel_normalization(features):
     features_norm = normalized.T.reshape(n_channels, n_trials, n_times).transpose(1, 0, 2)
     return features_norm
 
-#Normalizzazione per tutti i dati
-#Con flatten i dati vengono concatenati
-def total_normalization(features):
-    #all_values = features.flatten()
-    all_values = features
-    mean = all_values.mean()
-    std = all_values.std()
-    features_norm = (features - mean) / std
-    return features_norm
-
-from scipy.stats import zscore
-#Test per vedere se normalizzando gli spettrogrammi migliora 
-def normalize_spectrogram(spectrogram):
-    """Log + z-score sullo spettrogramma per canale e frequenza"""
-    # Log-compression
-    spectrogram = np.log1p(spectrogram)  # oppure np.log10(spectrogram + eps)
-    # z-score per ogni (canale, frequenza) su tutte le epoche e tempi
-    # reshape per applicare su asse (0, 3) → (trial, time)
-    n_trials, n_channels, n_freqs, n_times = spectrogram.shape
-    reshaped = spectrogram.transpose(1, 2, 0, 3).reshape(n_channels * n_freqs, -1)
-    normalized = zscore(reshaped, axis=1)
-    spectrogram_norm = normalized.reshape(n_channels, n_freqs, n_trials, n_times).transpose(2, 0, 1, 3)
- 
-    return spectrogram_norm  # shape: (n_trials, n_channels, n_freqs, n_times)
-
-def segment_and_rec_1fold_augmentation(features, labels, num_aug_per_sample=1, num_segments=8):
-    """
-    Ogni epoca viene usata `num_aug_per_sample` volte per creare nuove epoche,
-    ciascuna con un solo segmento sostituito da un segmento di un'altra epoca della stessa classe.
-    Questo è S&R con 1 fold, come MSCFormer
-    
-    features: shape (N, C, T)
-    labels: shape (N,)
-    """
-    segment_length = features.shape[2] // num_segments
-
-    augmented_features = []
-    augmented_labels = []
-
-    for idx in range(features.shape[0]):
-        base = features[idx]
-        label = labels[idx]
-        
-        # Indici di epoche con la stessa classe (diverse dalla corrente)
-        same_class_idx = np.where((labels == label) & (np.arange(len(labels)) != idx))[0]
-        if len(same_class_idx) == 0:
-            continue  # skip se non ci sono altri esempi della stessa classe
-
-        for _ in range(num_aug_per_sample):
-            # Copia dell'epoca originale
-            new_epoch = np.copy(base)
-            # Segmento da sostituire
-            seg_idx = np.random.randint(0, num_segments)
-            start = seg_idx * segment_length
-            end = (seg_idx + 1) * segment_length
-            # elemento casuale della stessa classe da cui estrarre il segmento
-            same_class_segment_idx = np.random.choice(same_class_idx)
-            same_class_segment = features[same_class_segment_idx]
-            new_epoch[:, start:end] = same_class_segment[:, start:end]
-
-            augmented_features.append(new_epoch)
-            augmented_labels.append(label)
-
-    # Concatenazione dei dati originali + augmented
-    features_aug = np.concatenate([features, np.array(augmented_features)], axis=0)
-    labels_aug = np.concatenate([labels, np.array(augmented_labels)], axis=0)
-
-    return features_aug, labels_aug
 
 
 def segment_and_rec_total_augmentation(features, labels, dataset="2a"):
@@ -131,7 +63,7 @@ def segment_and_rec_total_augmentation(features, labels, dataset="2a"):
     if dataset == "2a":
         segment_length = 1008 // 8  # 1008 / 8
     elif dataset == "2b":
-        segment_length = 1136 // 8
+        segment_length = 1000 // 8
     else:
         segment_length = 480 // 8
     num_segments = 8
@@ -169,62 +101,7 @@ def segment_and_rec_total_augmentation(features, labels, dataset="2a"):
 
     return features_aug, labels_aug, is_real
 
-def segment_and_rec_spectrogram_batch_augmentation(inputs, labels, n_segments=8):
-    """
-    Data augmentation per batch di spettrogrammi.
-    Combina segmenti temporali da epoche della stessa classe.
 
-    inputs: tensor (B, C, F, T)
-    labels: tensor (B,)
-    returns: augmented_inputs (B, C, F, T), augmented_labels (B,)
-    """
-    B, C, F, T = inputs.shape
-    segment_len = T // n_segments
-    device = inputs.device
-    unique_labels = labels.unique()
-
-    aug_inputs = []
-    aug_labels = []
-
-    for cls in unique_labels:
-        cls_idx = (labels == cls).nonzero(as_tuple=True)[0]
-        cls_inputs = inputs[cls_idx]  # (N_cls, C, F, T)
-
-        for _ in range(len(cls_idx)):
-            segments = []
-            for seg_id in range(n_segments):
-                rand_idx = torch.randint(0, len(cls_inputs), (1,))
-                seg = cls_inputs[rand_idx][:, :, :, seg_id * segment_len : (seg_id + 1) * segment_len]
-                segments.append(seg.squeeze(0))  # (C, F, segment_len)
-
-            new_sample = torch.cat(segments, dim=-1)  # concat lungo tempo → (C, F, T)
-            aug_inputs.append(new_sample.unsqueeze(0))
-            aug_labels.append(cls.item())
-
-    aug_inputs = torch.cat(aug_inputs, dim=0)  # (B, C, F, T)
-    aug_labels = torch.tensor(aug_labels, dtype=torch.long, device=device)
-
-    return aug_inputs.to(device), aug_labels.to(device)
-
-
-
-
-def three_augmentation(features, labels):
-    """
-    Divide ogni trial in 3 segmenti uguali lungo l'asse temporale.
-    Restituisce un dataset triplicato con le stesse etichette.
-    Non divido per 2 perchè poi non è divisibile per 16.
-    Questo è l'augmentation usato nel paper MVIT.
-    """
-    n_trials, n_channels, n_times = features.shape
-    assert n_times % 3 == 0, "Il numero di timepoint deve essere divisibile per 3"
-    third = n_times // 3
-    part1 = features[:, :, :third]
-    part2 = features[:, :, third:2*third]
-    part3 = features[:, :, 2*third:]
-    features_aug = np.concatenate([part1, part2, part3], axis=0)
-    labels_aug = np.concatenate([labels, labels, labels], axis=0)
-    return features_aug, labels_aug
 
 def bandpass_filter_raw(raw, l_freq=LOW_FREQ, h_freq=HIGH_FREQ, order=5, rs=40):
     """

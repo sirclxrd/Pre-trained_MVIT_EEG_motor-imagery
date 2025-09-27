@@ -302,12 +302,61 @@ class MultiChannelViT(nn.Module):
         # self.last_encoder = nn.TransformerEncoder(last_transformer, num_layers=depth)
         # self.norm = nn.LayerNorm(embed_dim)
         
-    def gen_maskid_patch(self, sequence_len=500, mask_size=2):
+    # def gen_maskid_patch(self, sequence_len=500, mask_size=2):
+    #     """
+    #     Versione facile: maschera sempre le prime `mask_size` patch consecutive.
+    #     Questo permette al modello di imparare subito senza random cluster.
+    #     """
+    #     mask_id = list(range(mask_size))  # patch consecutive dall'inizio
+    #     return torch.tensor(mask_id)
+
+    # da provare
+    # def gen_maskid_patch(self, sequence_len=500, mask_size=2):
+    # """
+    # Versione più complessa:
+    # - sceglie in modo random un punto di partenza
+    # - maschera `mask_size` patch consecutivi
+    # - se mask_size > 1, i patch rimangono vicini (cluster)
+    # """
+    # # punto di partenza casuale (garantendo che non superi i limiti)
+    # start = torch.randint(0, sequence_len - mask_size + 1, (1,))
+    # mask_id = list(range(start, start + mask_size))
+
+    # return torch.tensor(mask_id)
+
+
+    def gen_maskid_patch(self, sequence_len=500, mask_size=2, cluster=3):
         """
-        Versione facile: maschera sempre le prime `mask_size` patch consecutive.
-        Questo permette al modello di imparare subito senza random cluster.
+        Genera indici casuali di patch da mascherare seguendo la logica originale SSAST.
+        
+        Args:
+            sequence_len (int): numero totale di patch (es. 512)
+            mask_size (int): numero di patch da mascherare
+            p_t_dim (int): numero di patch sulla dimensione temporale (larghezza), es. 64 - 1008/16
+            cluster (int): fattore massimo di clustering (cur_clus sarà tra 3 e 3+cluster-1)
+        
+        Returns:
+            torch.LongTensor: indici delle patch mascherate, shape (mask_size,)
         """
-        mask_id = list(range(mask_size))  # patch consecutive dall'inizio
+        mask_id = []
+
+        # randomizza clustering factor in [3, 3+cluster)
+        cur_clus = randrange(cluster) + 3
+
+        while len(set(mask_id)) <= mask_size:
+            start_id = randrange(sequence_len) #sceglie una patch a caso tra le 512
+
+            cur_mask = []
+            for i in range(cur_clus):
+                for j in range(cur_clus):
+                    mask_cand = start_id + self.p_t_dim * i + j
+                    if mask_cand >= 0 and mask_cand < sequence_len:
+                        cur_mask.append(mask_cand)
+
+            mask_id = mask_id + cur_mask
+
+        # rimuove duplicati e limita al numero richiesto
+        mask_id = list(set(mask_id))[:mask_size]
         return torch.tensor(mask_id)
     
 
@@ -409,6 +458,7 @@ class MultiChannelViT(nn.Module):
             pred = fold(pred.transpose(1, 2))
             masked = fold(masked.transpose(1, 2))
             return pred, masked
+
     def mpg(self, input, mask_patch, encoder, num_patches):
         B = input.shape[0]
         x = encoder.patch_embed(input)
@@ -452,7 +502,6 @@ class MultiChannelViT(nn.Module):
         for i in range(channel, channel+1):
             encoder = self.encoders[channel]
             x_channel = x[:, i:i+1, :, :]  # [B, 1, H, W]
-            x_channel = x_channel.transpose(2, 3)
             # chiamiamo la funzione mpc per il singolo canale
             pred, masked = self.mpc(
                 x_channel,
@@ -465,6 +514,7 @@ class MultiChannelViT(nn.Module):
                 show_mask=True
             )
         return pred,masked
+
 
     def pret_forward(self, x, mask_patch):
 
@@ -490,7 +540,7 @@ class MultiChannelViT(nn.Module):
 
             mse_loss = self.mpg(x_channel, mask_patch=mask_patch, encoder=encoder, num_patches=encoder.patch_embed.n_patches)
             append_to_log_file("loss.txt", f"nce loss: {nce}, mse loss: {mse_loss}")
-            loss_list.append(nce + 4*mse_loss)
+            loss_list.append(nce + 10*mse_loss)
             acc_list.append(acc)
             mse_list.append(mse_loss)
             nce_list.append(nce)

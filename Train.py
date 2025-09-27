@@ -427,7 +427,7 @@ def main(args, config):
             #scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
             model.to(device)
             #last_epoch = checkpoint['epoch'] + 1  # Per riprendere
-            if 'epoch_loss' in checkpoint:
+            if 'epoch_loss' in checkpoint and config["run"]["augment"]:
                 epoch_loss= checkpoint['epoch_loss']
                 epoch_acc= checkpoint['epoch_acc']
                 epoch_val_loss= checkpoint['epoch_val_loss']

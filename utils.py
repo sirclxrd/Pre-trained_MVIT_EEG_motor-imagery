@@ -298,63 +298,7 @@ def plot_probing_example(model, train_loader, mask_patch=400, channel=None, path
 
     model = model.to('cuda')
 
-import torch
-import matplotlib.pyplot as plt
-import os
 
-def save_reconstruction(x, input, pred, mask_index, patch_size=16, H=224, W=224, n_show=1,
-                        out_dir="reconstructions", prefix="sample"):
-    """
-    Salva immagini originali, mascherate e ricostruite dai patch.
-
-    Args:
-        x: batch originale [B, 1, H, W]
-        input: patch originali da encoder.unfold(x).transpose(1,2), shape [B, N, D]
-        pred: patch predetti dal modello [B, mask_patch, D]
-        mask_index: indici dei patch mascherati [B, mask_patch]
-        patch_size: lato della patch
-        H, W: dimensioni immagine
-        n_show: numero di esempi del batch da salvare
-        out_dir: directory in cui salvare le immagini
-        prefix: prefisso per i nomi dei file
-    """
-    os.makedirs(out_dir, exist_ok=True)
-    B = x.shape[0]
-    fold = torch.nn.Fold(output_size=(H, W), kernel_size=(patch_size, patch_size), stride=patch_size)
-
-    with torch.no_grad():
-        for b in range(min(B, n_show)):
-            patches = input[b:b+1]              # [1, N, D]
-            masked_patches = patches.clone()
-            recon_patches = patches.clone()
-
-            # sostituisco i patch mascherati
-            masked_patches[0, mask_index[b]] = 0.
-            recon_patches[0, mask_index[b]] = pred[b]
-
-            # ricompongo immagini
-            orig_img = fold(patches.transpose(1, 2))
-            masked_img = fold(masked_patches.transpose(1, 2))
-            recon_img = fold(recon_patches.transpose(1, 2))
-
-            # prendo il canale 0 e passo a numpy
-            orig_img = orig_img[0,0].cpu().numpy()
-            masked_img = masked_img[0,0].cpu().numpy()
-            recon_img = recon_img[0,0].cpu().numpy()
-
-            # plot e salvataggio
-            fig, axs = plt.subplots(1, 3, figsize=(12, 4))
-            axs[0].imshow(orig_img, cmap="gray")
-            axs[0].set_title("Originale")
-            axs[1].imshow(masked_img, cmap="gray")
-            axs[1].set_title("Mascherata")
-            axs[2].imshow(recon_img, cmap="gray")
-            axs[2].set_title("Ricostruita")
-            for ax in axs: ax.axis("off")
-
-            out_path = os.path.join(out_dir, f"{prefix}_{b}.png")
-            plt.savefig(out_path, bbox_inches="tight")
-            plt.close(fig)  # chiude la figura per non riempire la memoria
 
 
 
