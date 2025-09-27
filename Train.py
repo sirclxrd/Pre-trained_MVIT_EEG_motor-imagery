@@ -230,10 +230,8 @@ def _init_weights(m):
         nn.init.constant_(m.weight, 1.0)
 
 
-if __name__ == '__main__':
+def main(args, config, docker_prefix = "../../../mnt/localstorage/cdeangelis/"):
     print(device)
-    docker_prefix = "../../../mnt/localstorage/cdeangelis/"
-
     #seed_n = np.random.randint(2025)
     seed_n = 2025
     print('seed is ' + str(seed_n))
@@ -463,3 +461,10 @@ if __name__ == '__main__':
     append_to_log_file("total.txt", txt) #per un insieme di tutti i risultati
     config_csv(config, mean_accuracy=str(np.mean(total_test_acc))) #scrive i risultati su un file csv
     subject_csv(total_test_acc, testname=config["info"]["test_name"])
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--config', type=str, default='configs/single_config_16_2_2.yaml')
+    args = parser.parse_args()
+    config = load_config(args.config)
+    main(args,config)
