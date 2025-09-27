@@ -258,9 +258,8 @@ def interpolate_pos_embed(pos_embed_checkpoint, num_patches_new):
     return pos_tokens
 
 
-def main(args, config):
+def main(args, config, docker_prefix = "../../../mnt/localstorage/cdeangelis/", root_2a = "./BciCompetitionIv2a/Train", root_2b = "./BciCompetitionIv2b"):
     print(device)
-    docker_prefix = "../../../mnt/localstorage/cdeangelis/"
 
     #seed_n = np.random.randint(2025)
     total_test_acc = []
@@ -367,9 +366,9 @@ def main(args, config):
             train_loader, val_loader, test_loader = preprocess_physionet(subject_id=subject, augment = config["run"]["augment"], filter = config["train"]["filter"], batch_size = batch_size)
         else:
             if config["run"]["augment"]:
-                train_dataset, test_dataset, is_real = prepare_dataloaders(subject_id = subject, augment = config["run"]["augment"], filter=config["train"]["filter"], BCI = config["run"]["dataset"]) #choose if augment dataset
+                train_dataset, test_dataset, is_real = prepare_dataloaders(subject_id = subject, augment = config["run"]["augment"], filter=config["train"]["filter"], BCI = config["run"]["dataset"], root = root_2a, root_2b = root_2b) #choose if augment dataset
             else:
-                train_dataset, test_dataset = prepare_dataloaders(subject_id = subject, augment = config["run"]["augment"], filter=config["train"]["filter"], BCI = config["run"]["dataset"]) #choose if augment dataset
+                train_dataset, test_dataset = prepare_dataloaders(subject_id = subject, augment = config["run"]["augment"], filter=config["train"]["filter"], BCI = config["run"]["dataset"], root = root_2a, root_2b = root_2b) #choose if augment dataset
         
             if config["run"]["val"]:
                 if config["run"]["augment"]:
@@ -510,5 +509,7 @@ if __name__ == '__main__':
     parser.add_argument('--config', type=str, default='configs/single_config_16_2_2.yaml')
     args = parser.parse_args()
     config = load_config(args.config)
-    main(args,config)
+    root_2a = "./BciCompetitionIv2a/Train"
+    root_2b = "./BciCompetitionIv2b"
+    main(args,config, docker_prefix="../../../mnt/localstorage/cdeangelis/", root_2a=root_2a, root_2b = root_2b)
     
