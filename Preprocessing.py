@@ -26,15 +26,19 @@ HIGH_FREQ = 30
 N_FREQ = 32
 
 class EEGSpectrogramDataset(Dataset):
-    def __init__(self, features, labels):
+    def __init__(self, features, labels, is_pretrain=False):
         self.features = torch.tensor(features, dtype=torch.float32)  # [N, 22, 32, 1008]
         self.labels = torch.tensor(labels, dtype=torch.long)
+        self.is_pretrain = is_pretrain
 
     def __len__(self):
         return len(self.features)
 
     def __getitem__(self, idx):
-        return self.features[idx], self.labels[idx]
+        if self.is_pretrain:
+            return self.features[idx]
+        else:
+            return self.features[idx], self.labels[idx]
 
 
 #Normalizzazione per canale
@@ -131,7 +135,7 @@ def segment_and_rec_total_augmentation(features, labels, dataset="2a"):
     if dataset == "2a":
         segment_length = 1008 // 8  # 1008 / 8
     elif dataset == "2b":
-        segment_length = 1136 // 8
+        segment_length = 1000 // 8
     else:
         segment_length = 480 // 8
     num_segments = 8
@@ -372,7 +376,7 @@ def read_data(path, tmin=2, tmax=6.028, is_test=False, augment = False, filter =
 
     #raw=bandpass_filter_raw(raw)
 
-    raw.set_eeg_reference()
+    raw.set_eeg_reference('average')
     events=mne.events_from_annotations(raw)
     if is_test:
         # Carico tutte le epoche disponibili (senza specificare event_id)
@@ -425,7 +429,7 @@ def read_data(path, tmin=2, tmax=6.028, is_test=False, augment = False, filter =
 
     return features,labels
 
-def read_data_2b(subject_id, base_path, tmin=0, tmax=4.540, augment=False, filter="Butter", is_test = False):
+def read_data_2b(subject_id, base_path, tmin=0, tmax=3.995, augment=False, filter="Butter", is_test = False, is_pretrain = False):
     all_features = []
     all_labels = []
     subject_id = subject_id[1:3]
@@ -519,10 +523,19 @@ def read_data_2b(subject_id, base_path, tmin=0, tmax=4.540, augment=False, filte
                 HIGH_FREQ = 100
 
             #events, _ = mne.events_from_annotations(raw)
-
-            events, event_dict = mne.events_from_annotations(raw) 
-            event_id = {'Left': event_dict['769'], 'Right': event_dict['770']}
-            selected_events = events[np.isin(events[:, 2], list(event_id.values()))]              
+            if is_pretrain:
+                sfreq = raw.info['sfreq']
+                n_samples = raw.n_times
+                step = int(sfreq * 1)   # passo = 1 s, ogni finestra inizia 1s dopo la precedente
+                win = int(sfreq * 3.995)    # finestra = 4 s, lunghezza di ogni finestra, quanti campioni corrsipondono ad ogni finestra
+                # Crea eventi fittizi ogni 'step'
+                starts = np.arange(0, n_samples - win, step) #array di indici inizio di ogni finestra, va avanti ogni step, 250hz corrisponde ad 1s fino a finire il segnale
+                selected_events = np.column_stack([starts, np.zeros_like(starts, int), np.ones_like(starts, int)])
+                event_id = {'Unknown': 1}
+            else:
+                events, event_dict = mne.events_from_annotations(raw) 
+                event_id = {'Left': event_dict['769'], 'Right': event_dict['770']}
+                selected_events = events[np.isin(events[:, 2], list(event_id.values()))]              
             raw.info['bads'] += ['EOG:ch01', 'EOG:ch02', 'EOG:ch03']
             picks = mne.pick_types(raw.info, meg=False, eeg=True, eog=False, stim=False,
                             exclude='bads')
@@ -553,38 +566,32 @@ def read_data_2b(subject_id, base_path, tmin=0, tmax=4.540, augment=False, filte
             
     return features, labels
 
-def read_data_physionet(base_path, subject=1, tmin=0.0, tmax=2.995,
-                        preload=True, augment=False, filter="Butter"):
+def read_data_physionet(base_path, subject=1, tmin=0.0, tmax=2.995, preload=True, augment=False, filter="Butter"):
 
-    # 3 → opening eyes (T0)
+    # run motor imagery in PhysioNet:
     # 4,8,12 → mano sinistra (T1), mano destra (T2)
-    # 6,10,14 → mani (T1), piedi (T2) → prendiamo solo piedi
-    runs = [3, 4, 6, 8, 10, 12, 14]
-    subject = int(subject[2:])  # "A01" --> 1, "A109" --> 109
+    # 6,10,14 → mani (T1), piedi (T2)
+    runs = [4, 6, 8, 10, 12, 14]
+    subject = int(subject[2:]) # "A01" --> 1, "A109" --> "109"
 
     X_list, y_list = [], []
 
     for run in runs:
-        file_path = os.path.join(base_path, f"S{subject:03d}",
-                                 f"S{subject:03d}R{run:02d}.edf")
+        file_path = os.path.join(base_path, f"S{subject:03d}", f"S{subject:03d}R{run:02d}.edf")
 
-        raw = mne.io.read_raw_edf(file_path, preload=preload,
-                                  stim_channel="auto", verbose=False)
+        raw = mne.io.read_raw_edf(file_path, preload=preload, stim_channel="auto", verbose=False)
         events, event_id = mne.events_from_annotations(raw, verbose=False)
 
         # mapping in base al tipo di run
-        if run == 3:  # apertura occhi
-            mapping = {"opening": "T0"}
-        elif run in [4, 8, 12]:  # left / right
+        if run in [4, 8, 12]:     # left / right
             mapping = {"left": "T1", "right": "T2"}
-        # elif run in [6, 10, 14]:  # feet only
-        #     mapping = {"feet": "T2"}  # attenzione: nei run 6,10,14 T2 = feet
+        elif run in [6, 10, 14]:  # hands / feet
+            mapping = {"hands": "T1", "feet": "T2"}
         else:
             continue
 
         # solo eventi che ci interessano
-        selected_event_id = {cls: event_id[tag]
-                             for cls, tag in mapping.items() if tag in event_id}
+        selected_event_id = {cls: event_id[tag] for cls, tag in mapping.items() if tag in event_id}
 
         if not selected_event_id:
             continue
@@ -594,32 +601,30 @@ def read_data_physionet(base_path, subject=1, tmin=0.0, tmax=2.995,
                             tmin=tmin, tmax=tmax,
                             baseline=None, preload=True, verbose=False)
 
-        # etichette
+        # converti etichette in numeri 0..3
         inv_map = {v: k for k, v in selected_event_id.items()}
         y_run = [inv_map[e] for e in epochs.events[:, 2]]
 
-        # assegna numeri fissi: opening=0, left=1, right=2, feet=3
-        label_map = {"opening": 0, "left": 1, "right": 2}
-        #label_map = {"left": 0, "right": 1}
+        # assegna numeri fissi: left=0, right=1, hands=2, feet=3
+        label_map = {"left": 0, "right": 1, "hands": 2, "feet": 3}
         y_run = np.array([label_map[c] for c in y_run])
 
         X_list.append(epochs.get_data())
         y_list.append(y_run)
 
     features = np.concatenate(X_list, axis=0)
-    labels = np.concatenate(y_list, axis=0).reshape(-1, 1)
+    labels = np.concatenate(y_list, axis=0).reshape(-1, 1)   # (N_trials, 1) altrimenti errore nell'augment di dimensione
 
     if augment:
-        features, labels, is_real = segment_and_rec_total_augmentation(
-            features, labels, dataset="physionet")
-        print("Train Features shape: ", features.shape)
-        print("Train Labels shape: ", labels.shape)
+        features, labels, is_real = segment_and_rec_total_augmentation(features, labels, dataset="physionet")
+        print("Train Features shape: ",features.shape)
+        print("Train Labels shape: ",labels.shape)
         print("Train dataset done")
         return features, labels, is_real
 
     print(f"Shape X: {features.shape}, Shape y: {labels.shape}")
-    return features, labels
 
+    return features, labels
 
 def read_mat_data(dir_path, dataset_type, n_sub, mode='train', augment=False):
 
@@ -660,13 +665,14 @@ def compute_morlet_spectrogram(features, sfreq, freqs=np.linspace(LOW_FREQ, HIGH
                              n_cycles=7, output='power', n_jobs=1)
 
     wvlts = np.log1p(wvlts)
+    
     mean = np.mean(wvlts, axis=(0), keepdims=True)
     std = np.std(wvlts, axis=(0), keepdims=True)
     
     wvlts = (wvlts - mean) / (std + 1e-10)
     return wvlts, mean, std
 
-def prepare_dataloaders(subject_id='A09', root='./BciCompetitionIv2a/Train', onlytest = False, augment = False, filter = "Butter", BCI = "2a"):
+def prepare_dataloaders(subject_id='A09', root='./BciCompetitionIv2a/Train', onlytest = False, augment = False, filter = "Butter", BCI = "2a", is_pretrain = False, root_2b = './BciCompetitionIv2b'):
     train_path = os.path.join(root, f'{subject_id}T.gdf')
     test_path = os.path.join(root.replace('Train', 'Test'), f'{subject_id}E.gdf')
     print(f"You are using the {BCI} dataset.")
@@ -679,11 +685,11 @@ def prepare_dataloaders(subject_id='A09', root='./BciCompetitionIv2a/Train', onl
                 x_train, y_train = read_data(train_path, is_test=False, augment = augment, filter = filter)
             #x_train, y_train = read_mat_data("mymat_raw/", "A", int(subject_id[2:3]), mode='train', augment=False)
         else:
-            root_train = './BciCompetitionIv2b'
+            root_train = root_2b
             if augment == True:
-                x_train, y_train, is_real = read_data_2b(subject_id, root_train, augment=augment, filter=filter, is_test = False)
+                x_train, y_train, is_real = read_data_2b(subject_id, root_train, augment=augment, filter=filter, is_test = False, is_pretrain=is_pretrain)
             else:
-                x_train, y_train = read_data_2b(subject_id, root_train, augment=augment, filter=filter, is_test = False)
+                x_train, y_train = read_data_2b(subject_id, root_train, augment=augment, filter=filter, is_test = False, is_pretrain=is_pretrain)
         x_train, mean, std = compute_morlet_spectrogram(x_train, sfreq=250)
         print(x_train.shape)
 
@@ -692,14 +698,14 @@ def prepare_dataloaders(subject_id='A09', root='./BciCompetitionIv2a/Train', onl
             x_test, y_test = read_data(test_path, is_test=True, filter = filter)
             #x_test, y_test = read_mat_data("mymat_raw/", "A", int(subject_id[2:3]), mode='test', augment=False)
         else:
-            root_test = './BciCompetitionIv2b'
-            x_test, y_test = read_data_2b(subject_id, root_test, augment=augment, filter=filter, is_test = True)
+            root_test = root_2b
+            x_test, y_test = read_data_2b(subject_id, root_test, augment=augment, filter=filter, is_test = True, is_pretrain=is_pretrain)
         x_test, mean, std = compute_morlet_spectrogram(x_test, sfreq=250, mean=mean, std=std)
         #print(x_test.shape)
 
         # DATASET
-        train_dataset = EEGSpectrogramDataset(x_train, y_train)
-        test_dataset = EEGSpectrogramDataset(x_test, y_test)
+        train_dataset = EEGSpectrogramDataset(x_train, y_train, is_pretrain=is_pretrain)
+        test_dataset = EEGSpectrogramDataset(x_test, y_test, is_pretrain=is_pretrain)
 
         if augment:
             return train_dataset, test_dataset, is_real
@@ -709,13 +715,13 @@ def prepare_dataloaders(subject_id='A09', root='./BciCompetitionIv2a/Train', onl
         if BCI == "2a":
             x_test, y_test = read_data(test_path, is_test=True, filter = filter)
         else:
-            root_test = './BciCompetitionIv2b'
-            x_test, y_test = read_data_2b(subject_id, root_test, augment=augment, filter=filter, is_test = True)
+            root_test = root_2b
+            x_test, y_test = read_data_2b(subject_id, root_test, augment=augment, filter=filter, is_test = True, is_pretrain=is_pretrain)
         x_test = compute_morlet_spectrogram(x_test, sfreq=250, mean=mean, std=std)
         #print(x_test.shape)
 
         # DATASET
-        test_dataset = EEGSpectrogramDataset(x_test, y_test)
+        test_dataset = EEGSpectrogramDataset(x_test, y_test, is_pretrain=is_pretrain)
         return test_dataset
 
 
