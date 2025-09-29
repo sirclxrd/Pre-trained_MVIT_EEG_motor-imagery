@@ -380,7 +380,7 @@ def main(args,config, docker_prefix = "../../../mnt/localstorage/cdeangelis/", r
         # model_1.pth è quello di pretrain
         if config["train"]["load"] == True:
             if config["run"]["val"] == True:
-                checkpoint = torch.load(load_path + "/model_" + "1" + ".pth", map_location=device)
+                checkpoint = torch.load(load_path + "/v_" + "1" + ".pth", map_location=device)
             else:
                 checkpoint = torch.load(load_path + "/" + subject + ".pth", map_location=device)
             model.load_state_dict(checkpoint['model_state_dict'])
@@ -436,15 +436,6 @@ def main(args,config, docker_prefix = "../../../mnt/localstorage/cdeangelis/", r
 
             epoch_loss.append(loss)
             epoch_acc.append(epoch_accuracy)
-
-            if loss < best_loss:
-                best_loss = loss
-                torch.save({
-                    'loss': loss,
-                    'epoch': i,
-                    'model_state_dict': model.state_dict(),
-                    'optimizer_state_dict': optimizer.state_dict()
-                }, save_path + "/" +subject + ".pth")
 
             
             print("EPOCA"+ str(i)+ " finita ")
