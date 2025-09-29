@@ -3,16 +3,16 @@ import torch.nn as nn
 
 class TSFF(nn.Module):
 
-    def __init__(self, img_weight=0.02, width=224, length=224, num_classes=2, samples=1001, channels=3, avepool=25):
+    def __init__(self, img_weight=0.02, width=224, length=224, num_classes=4, samples=1008, channels=22, avepool=25):
         super(TSFF, self).__init__()
-        self.channel_weight = nn.Parameter(torch.randn(9, 1, channels), requires_grad=True)
+        self.channel_weight = nn.Parameter(torch.randn(22, 1, channels), requires_grad=True)
         nn.init.xavier_uniform_(self.channel_weight.data)
 
         self.num_classes = num_classes
         self.img_weight = img_weight
 
         self.raw_time_conv = nn.Sequential(
-            nn.Conv2d(9, 24, kernel_size=(1, 1), groups=1, bias=False),
+            nn.Conv2d(22, 24, kernel_size=(1, 1), groups=1, bias=False),
             nn.BatchNorm2d(24),
             nn.Conv2d(24, 24, kernel_size=(1, 75), groups=24, bias=False),
             nn.BatchNorm2d(24),
@@ -43,7 +43,7 @@ class TSFF(nn.Module):
         n_out_raw_eeg = out_raw_eeg_shape[-1] * out_raw_eeg_shape[-2] * out_raw_eeg_shape[-3]
 
         self.frequency_features = nn.Sequential(
-            nn.Conv2d(3, 16, kernel_size=(4, 4), stride=1, padding=2),
+            nn.Conv2d(22, 16, kernel_size=(4, 4), stride=1, padding=2),
             nn.BatchNorm2d(16),
             nn.ReLU(inplace=True),
             nn.AvgPool2d(kernel_size=8),
