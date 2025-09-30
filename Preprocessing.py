@@ -415,11 +415,14 @@ def read_data(path, tmin=2, tmax=6.028, is_test=False, augment = False, filter =
                             tmin=tmin, tmax=tmax, baseline=None, preload=True)
 
         # Carico le etichette vere dal file .mat
-        labels_path = f'./BciCompetitionIv2a/true_labels/A{subj}E.mat'
+        labels_path = f'../Python/BciCompetitionIv2a/true_labels/A{subj}E.mat'
         true = loadmat(labels_path) # La cross-entropy vuole che partano da 0 le labels
         labels = true['classlabel'] - 1
         features=epochs.get_data()
-        features = channel_normalization(features) #normalizzo
+        print("ciao")
+        #features = channel_normalization(features) #normalizzo
+        features = trial_based_normalization(features)
+        print("ciao2")
         #features = savgol_filter(features, window_length=11, polyorder=3)
 
         #features = total_normalization(features)
@@ -435,7 +438,7 @@ def read_data(path, tmin=2, tmax=6.028, is_test=False, augment = False, filter =
             epochs = mne.Epochs(raw, events[0], event_id = [6],
                             tmin=tmin, tmax=tmax, baseline=None, preload=True)
         #labels=epochs.events[:,-1] - 7 # converto da [7,8,9,10] a [0,1,2,3]
-        labels_path = f'./BciCompetitionIv2a/true_labels/A{subj}T.mat'
+        labels_path = f'../Python/BciCompetitionIv2a/true_labels/A{subj}T.mat'
         true = loadmat(labels_path) # La cross-entropy vuole che partano da 0 le labels
         labels = true['classlabel'] - 1
         features=epochs.get_data()
@@ -446,9 +449,9 @@ def read_data(path, tmin=2, tmax=6.028, is_test=False, augment = False, filter =
             features, labels, is_real = segment_and_rec_total_augmentation(features, labels)
             #features, labels = channel_cluster_swapping(features, labels)
             #features, labels = flip_augmentation(features, labels)
-        features = channel_normalization(features) #normalizzo
+        #features = channel_normalization(features) #normalizzo
         #features = savgol_filter(features, window_length=11, polyorder=3)
-
+        features = trial_based_normalization(features)
         #features = total_normalization(features)
         print("Train Features shape: ",features.shape)
         print("Train Labels shape: ",labels.shape)
@@ -645,7 +648,7 @@ def debug_data_stats(x_train, y_train, x_test, y_test, R_mean_inv_sqrt=None):
     print("Test dummy acc :", accuracy_score(y_test, dummy_pred_test))
 
 
-def prepare_dataloaders(subject_id='A09', root='./BciCompetitionIv2a/Train', onlytest = False, augment = False, filter = "Butter", BCI = "2a"):
+def prepare_dataloaders(subject_id='A09', root='./BciCompetitionIv2a/Train', onlytest = False, augment = False, filter = "Butter", BCI = "2a", root_2b = './BciCompetitionIv2b'):
     train_path = os.path.join(root, f'{subject_id}T.gdf')
     test_path = os.path.join(root.replace('Train', 'Test'), f'{subject_id}E.gdf')
     print(f"You are using the {BCI} dataset.")
@@ -658,7 +661,7 @@ def prepare_dataloaders(subject_id='A09', root='./BciCompetitionIv2a/Train', onl
                 x_train, y_train = read_data(train_path, is_test=False, augment = augment, filter = filter)
             #x_train, y_train = read_mat_data("mymat_raw/", "A", int(subject_id[2:3]), mode='train', augment=False)
         else:
-            root_train = './BciCompetitionIv2b'
+            root_train = root_2b
             if augment == True:
                 x_train, y_train, is_real = read_data_2b(subject_id, root_train, augment=augment, filter=filter, is_test = False)
             else:
@@ -673,7 +676,7 @@ def prepare_dataloaders(subject_id='A09', root='./BciCompetitionIv2a/Train', onl
             x_test, y_test = read_data(test_path, is_test=True, filter = filter)
             #x_test, y_test = read_mat_data("mymat_raw/", "A", int(subject_id[2:3]), mode='test', augment=False)
         else:
-            root_test = './BciCompetitionIv2b'
+            root_test = root_2b
             x_test, y_test = read_data_2b(subject_id, root_test, augment=augment, filter=filter, is_test = True)
             x_test, R = euclidean_alignment(x_test, R)
         x_test, mean, std = compute_morlet_spectrogram(x_test, sfreq=250, mean=mean, std=std)
@@ -693,7 +696,7 @@ def prepare_dataloaders(subject_id='A09', root='./BciCompetitionIv2a/Train', onl
         if BCI == "2a":
             x_test, y_test = read_data(test_path, is_test=True, filter = filter)
         else:
-            root_test = './BciCompetitionIv2b'
+            root_test = root_2b
             x_test, y_test = read_data_2b(subject_id, root_test, augment=augment, filter=filter, is_test = True)
         x_test = compute_morlet_spectrogram(x_test, sfreq=250, mean=mean, std=std)
         #print(x_test.shape)

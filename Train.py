@@ -173,7 +173,7 @@ def _init_weights(m):
 
 
 
-def main(args, config, docker_prefix = "../../../mnt/localstorage/cdeangelis/"):
+def main(args, config, docker_prefix = "../../../mnt/localstorage/cdeangelis/", root_2a="../BciCompetitionIv2a/Train", root_2b = "../BciCompetitionIv2b"):
     print(device)
 
     #seed_n = np.random.randint(2025)
@@ -241,9 +241,9 @@ def main(args, config, docker_prefix = "../../../mnt/localstorage/cdeangelis/"):
         batch_size = config["train"]["batch_size"]
 
         if config["run"]["augment"]:
-            train_dataset, test_dataset, is_real = prepare_dataloaders(subject_id = subject, augment = config["run"]["augment"], filter=config["train"]["filter"], BCI = config["run"]["dataset"]) #choose if augment dataset
+            train_dataset, test_dataset, is_real = prepare_dataloaders(subject_id = subject, augment = config["run"]["augment"], filter=config["train"]["filter"], BCI = config["run"]["dataset"], root=root_2a, root_2b = root_2b) #choose if augment dataset
         else:
-            train_dataset, test_dataset = prepare_dataloaders(subject_id = subject, augment = config["run"]["augment"], filter=config["train"]["filter"], BCI = config["run"]["dataset"]) #choose if augment dataset
+            train_dataset, test_dataset = prepare_dataloaders(subject_id = subject, augment = config["run"]["augment"], filter=config["train"]["filter"], BCI = config["run"]["dataset"], root=root_2a, root_2b = root_2b) #choose if augment dataset
 
         #splitto in train e validation solo se specificato nel file
         if config["run"]["val"]:
@@ -364,4 +364,6 @@ if __name__ == '__main__':
     parser.add_argument('--config', type=str, default='configs/single_config_16_2_2.yaml')
     args = parser.parse_args()
     config = load_config(args.config)
-    main(args,config)
+    root_2a = "../Python/BciCompetitionIv2a/Train"
+    root_2b = "../Python/BciCompetitionIv2b"
+    main(args,config, docker_prefix="../", root_2a=root_2a, root_2b = root_2b)

@@ -66,7 +66,7 @@ class TSFF(nn.Module):
         )
 
    
-        img_eeg = torch.ones((1, 3, width, length))
+        img_eeg = torch.ones((1, 22, width, length))
         out_img = self.frequency_features(img_eeg)
         out_img_shape = out_img.cpu().data.numpy().shape
         n_out_img = out_img_shape[-1] * out_img_shape[-2] * out_img_shape[-3]
