@@ -180,9 +180,9 @@ def extract_tsne(model, loader, subj, path):
     plt.figure(figsize=(8, 6))
     for c in np.unique(labels):
         idx = labels == c
-        plt.scatter(features_2d[idx, 0], features_2d[idx, 1], label=f"Classe {c}", alpha=0.7)
+        plt.scatter(features_2d[idx, 0], features_2d[idx, 1], label=f"Class {c}", alpha=0.7)
     plt.legend()
-    plt.title("t-SNE delle feature della rete")
+    plt.title("t-SNE")
     plt.savefig(f"{path}/tsne_features_{subj}.png", dpi=300, bbox_inches='tight')
     plt.close()
 
