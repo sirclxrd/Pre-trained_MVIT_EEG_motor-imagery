@@ -331,11 +331,6 @@ class MultiChannelViT(nn.Module):
                 #         in_channels=1,
                 #         embed_dim=embed_dim)
 
-            param_sets = [
-            dict(patch_size=1,  patch_width = 336,  embed_dim=embed_dim, depth=depth, num_heads=num_heads),
-            dict(patch_size=32, patch_width = 1, embed_dim=embed_dim, depth=depth, num_heads=num_heads),
-            dict(patch_size=16, patch_width = 8, embed_dim=embed_dim, depth=depth, num_heads=num_heads)
-            ]
 
             # self.encoders = nn.ModuleList([
             #     ViTEncoder(
@@ -374,7 +369,7 @@ class MultiChannelViT(nn.Module):
         self.first = embed_dim * math.ceil(n_channels)
         # classifier per output concatenato
         self.concat_classifier = nn.Sequential(
-            nn.Linear(embed_dim*len(param_sets), 1024),
+            nn.Linear(embed_dim*n_channels, 1024),
             nn.ReLU(),
             nn.Dropout(0.4),
             nn.Linear(1024, 256),
@@ -425,9 +420,6 @@ class MultiChannelViT(nn.Module):
                 tokens.append(token)
             x = torch.cat(tokens, dim=1)  # [B, 22*D]
 
-            x2 = x.mean(dim=1)
-            out2 = self.single_classifier(x2)
-
             B, N, D = x.shape
             # Aggiunta del token CLS
             cls_tokens = self.cls_token.expand(B, -1, -1)  # [B, 1, D]
@@ -476,7 +468,7 @@ class MultiChannelViT(nn.Module):
             # print(single_token.shape)
             out = self.single_classifier(single_token)      # [B, num_classes]
 
-        return out, out2
+        return out
 
 
 class MultiChannelViTSelfSupervised(nn.Module):

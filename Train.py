@@ -94,10 +94,10 @@ def training_epoch(model, train_loader, test_loader, val_loader ,criterion, opti
         inputs = random_augmentation(inputs)
 
         optimizer.zero_grad()
-        outputs, out2 = model(inputs)
-        loss = (1-LAMBDA) * criterion(outputs, labels) + LAMBDA*criterion(out2, labels)
-        # outputs = model(inputs)
-        # loss = criterion(outputs, labels)
+        outputs = model(inputs)
+        #loss = (1-LAMBDA) * criterion(outputs, labels) + LAMBDA*criterion(out2, labels)
+        outputs = model(inputs)
+        loss = criterion(outputs, labels)
         
         if torch.isnan(outputs).any():
             print("NaN negli output del modello!")
@@ -139,10 +139,10 @@ def training_epoch(model, train_loader, test_loader, val_loader ,criterion, opti
                 #labels = labels.to(device).long()
                 labels = labels.to(device).squeeze().long()
 
-                outputs, out2 = model(inputs)
-                loss = (1-LAMBDA) * criterion(outputs, labels) + LAMBDA*criterion(out2, labels)
-                # outputs = model(inputs)
-                # loss = criterion(outputs, labels)
+                #outputs, out2 = model(inputs)
+                #loss = (1-LAMBDA) * criterion(outputs, labels) + LAMBDA*criterion(out2, labels)
+                outputs = model(inputs)
+                loss = criterion(outputs, labels)
 
                 val_loss += loss.item()
                 predicted = outputs.argmax(dim=1)# cerca il massimo sulle colonne
@@ -182,13 +182,13 @@ def test_model(model, test_loader, criterion, log_file = "log.txt"):
 
             #tempo per un batch di campioni
             start_time = time.time()
-            outputs, out2 = model(inputs)
-            #outputs = model(inputs)
+            #outputs, out2 = model(inputs)
+            outputs = model(inputs)
             end_time = time.time()
 
-            loss = (1-LAMBDA) * criterion(outputs, labels) + LAMBDA*criterion(out2, labels)
+            #loss = (1-LAMBDA) * criterion(outputs, labels) + LAMBDA*criterion(out2, labels)
 
-            #loss = criterion(outputs, labels)
+            loss = criterion(outputs, labels)
             running_loss += loss.item()
 
 
@@ -456,6 +456,6 @@ if __name__ == '__main__':
     parser.add_argument('--config', type=str, default='configs/single_config_16_2_2.yaml')
     args = parser.parse_args()
     config = load_config(args.config)
-    root_2a = "./BciCompetitionIv2a/Train"
+    root_2a = "../Python/BciCompetitionIv2a/Train"
     root_2b = "../Python/BciCompetitionIv2b"
     main(args,config, docker_prefix="../", root_2a=root_2a, root_2b = root_2b)
