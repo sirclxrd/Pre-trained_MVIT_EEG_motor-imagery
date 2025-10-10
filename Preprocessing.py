@@ -163,7 +163,7 @@ def segment_and_rec_total_augmentation(features, labels, dataset="2a"):
     In questo modo creo un nuovo sample completamente nuovo dato dalla concatenzatione con segmenti casuali
     della stessa classe. Come EEG-Conformer
     """
-
+    rng = np.random.default_rng(2025)
     if dataset == "2a":
         segment_length = 1008 // 8  # 1008 / 8
     else:
@@ -182,7 +182,8 @@ def segment_and_rec_total_augmentation(features, labels, dataset="2a"):
             segments = []
             for i in range(num_segments):
                 # Prendi una epoca casuale della stessa classe
-                rand_feat = feats_cls[np.random.randint(0, len(feats_cls))]
+                #rand_feat = feats_cls[np.random.randint(0, len(feats_cls))]
+                rand_feat = feats_cls[rng.integers(0, len(feats_cls))]
                 seg = rand_feat[:, i*segment_length:(i+1)*segment_length]
                 segments.append(seg)
             # Ricompone epoca
@@ -681,7 +682,7 @@ def prepare_dataloaders(subject_id='A09', root='./BciCompetitionIv2a/Train', onl
             x_test, R = euclidean_alignment(x_test, R)
         x_test, mean, std = compute_morlet_spectrogram(x_test, sfreq=250, mean=mean, std=std)
 
-        debug_data_stats(x_train, y_train, x_test, y_test, R_mean_inv_sqrt=R)   
+        #debug_data_stats(x_train, y_train, x_test, y_test, R_mean_inv_sqrt=R)   
         #print(x_test.shape)
 
         # DATASET
