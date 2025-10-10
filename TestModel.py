@@ -1,23 +1,16 @@
 from Preprocessing import prepare_dataloaders
 import numpy as np
-from torch.utils.data import Dataset, DataLoader, Subset
-from torch.optim.lr_scheduler import LambdaLR, CosineAnnealingLR
+from torch.utils.data import DataLoader
 import torch
 from models.MVIT import MultiChannelViT
-from models.pret_MVIT import pret_MVIT
 import torch.nn as nn
 import time
 from utils import (visualize_train_loss_acc, load_config, create_checkpoints_folders, 
-                   append_to_log_file, load_only_model, config_csv, subject_csv, plot_confusion_matrix)
+                   append_to_log_file, plot_confusion_matrix)
 import random
-import yaml
 import argparse
-from torch.utils.data import random_split
-import os
-from math import ceil
 import math
-from torch.utils.data import ConcatDataset
-from torch.optim import AdamW
+from torch.optim import Adam
 from sklearn.metrics import confusion_matrix, cohen_kappa_score
 import matplotlib.pyplot as plt
 import cv2
@@ -190,7 +183,7 @@ def extract_tsne(model, loader, subj, path):
 # Main
 # ----------------------------------------
 
-def main(args,config, docker_prefix="../", root_2a="../", root_2b = "../"):
+def main(args, config, docker_prefix="../", root_2a="../", root_2b="../"):
     seed_n = 2025
     print('seed is ' + str(seed_n))
     random.seed(seed_n)
@@ -201,7 +194,9 @@ def main(args,config, docker_prefix="../", root_2a="../", root_2b = "../"):
 
     s_accuracy = []
     s_kappa = []
-    save_path, graphs_path, log_path = create_checkpoints_folders(args.config, config["model"]["single"], docker_prefix = docker_prefix)
+    save_path, graphs_path, log_path = create_checkpoints_folders(args.config, config["model"]["single"], docker_prefix=docker_prefix)
+
+    mean_cm = None  # per accumulare confusion matrix
 
     for n in range(9):
         subject_test = f"A0{n+1}"
@@ -210,9 +205,16 @@ def main(args,config, docker_prefix="../", root_2a="../", root_2b = "../"):
 
         model = MultiChannelViT(**config["model"]).to(device)
         criterion = nn.CrossEntropyLoss()
-        optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
+        optimizer = Adam(model.parameters(), lr=1e-4)
 
-        _, test_dataset = prepare_dataloaders(subject_id=subject_test, augment=False, filter=config["train"]["filter"], BCI=config["run"]["dataset"], root=root_2a, root_2b = root_2b)
+        _, test_dataset = prepare_dataloaders(
+            subject_id=subject_test, 
+            augment=False, 
+            filter=config["train"]["filter"], 
+            BCI=config["run"]["dataset"], 
+            root=root_2a, 
+            root_2b=root_2b
+        )
         test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
         checkpoint = torch.load(load_path)
@@ -222,22 +224,45 @@ def main(args,config, docker_prefix="../", root_2a="../", root_2b = "../"):
         print("Train loss=", checkpoint['loss'])
 
         avg_loss, avg_acc, all_preds, all_labels, kappa = test_model(model, test_loader, criterion)
-        importances = cls_token_importance(model.concat_classifier[0])
-        #append_to_log_file(log_path, f"Importances {importances}")
+        #importances = cls_token_importance(model.concat_classifier[0])
+
         txt = f"Accuracy on {subject_test} is {avg_acc:.4f} | Kappa: {kappa:.4f}"
         append_to_log_file(log_path, txt)
+
         cm = confusion_matrix(all_labels, all_preds)
         plot_confusion_matrix(cm, graphs_path+"/cm_"+subject_test)
         extract_tsne(model, test_loader, subject_test, graphs_path)
-        #extract_and_visualize_attention_channels_grid(model, test_loader, grid_filename=graphs_path+"/attention_grid.png")
 
         s_accuracy.append(avg_acc)
         s_kappa.append(kappa)
 
-    # Media finale
+        # Aggiorna la confusion matrix media
+        if mean_cm is None:
+            mean_cm = cm.astype(np.float64)
+        else:
+            mean_cm += cm
+
+    # --- Mean Confusion Matrix ---
+    mean_cm /= 9
+    plot_confusion_matrix(mean_cm, graphs_path + "/mean_confusion_matrix")
+
+    # --- Grafico a barre per accuracy ---
+    subjects = [f"S{i+1}" for i in range(9)]
+    plt.figure(figsize=(10, 5))
+    plt.bar(subjects, s_accuracy)
+    plt.ylim(0, 1)
+    plt.ylabel("Accuracy")
+    plt.xlabel("Subject")
+    plt.title("Accuracy per Subject")
+    plt.grid(axis='y', linestyle='--', alpha=0.7)
+    plt.savefig(graphs_path + "/accuracy_barplot.png", dpi=300, bbox_inches='tight')
+    plt.close()
+
+    # --- Media finale ---
     txt = f"Mean accuracy {np.mean(s_accuracy):.4f} | Mean Cohen's Kappa {np.mean(s_kappa):.4f}"
     print(txt)
     append_to_log_file(log_path, txt)
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -246,7 +271,4 @@ if __name__ == '__main__':
     config = load_config(args.config)
     root_2a = "../Python/BciCompetitionIv2a/Train"
     root_2b = "../Python/BciCompetitionIv2b"
-    main(args,config, docker_prefix="../", root_2a=root_2a, root_2b = root_2b)
-
-
-
+    main(args, config, docker_prefix="../", root_2a=root_2a, root_2b=root_2b)
