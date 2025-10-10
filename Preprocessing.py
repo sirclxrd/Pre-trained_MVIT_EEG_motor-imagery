@@ -586,9 +586,10 @@ def compute_morlet_spectrogram(features, sfreq, freqs=np.linspace(LOW_FREQ, HIGH
     wvlts = tfr_array_morlet(features, sfreq=sfreq, freqs=freqs,
                              n_cycles=7, output='power', n_jobs=1)
 
+    wvlts = np.log1p(wvlts)
     if mean is None or std is None:
-        mean = np.mean(wvlts, axis=(0, 1, 2), keepdims=True)
-        std  = np.std(wvlts, axis=(0, 1, 2), keepdims=True)
+        mean = np.mean(wvlts, axis=(0), keepdims=True)
+        std  = np.std(wvlts, axis=(0), keepdims=True)
     wvlts = (wvlts - mean) / (std + 1e-10)
     
     wvlts = torch.tensor(wvlts, dtype=torch.float32)
@@ -597,7 +598,7 @@ def compute_morlet_spectrogram(features, sfreq, freqs=np.linspace(LOW_FREQ, HIGH
     wvlts = F.interpolate(
         wvlts, size=(224, 224), mode='bilinear', align_corners=False
     )
-    # wvlts = np.log1p(wvlts)
+    #wvlts = np.log1p(wvlts)
     
     # mean = np.mean(wvlts, axis=(0), keepdims=True)
     # std = np.std(wvlts, axis=(0), keepdims=True)
