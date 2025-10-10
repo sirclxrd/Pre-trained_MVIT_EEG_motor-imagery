@@ -389,6 +389,17 @@ class MultiChannelViT(nn.Module):
             #             num_heads = num_heads)
             #     for _ in range(math.ceil(n_channels)) #22/3 lo arrotonda come se fosse 24/3
             # ])
+            self.first = embed_dim * math.ceil(n_channels)
+            # classifier per output concatenato
+            self.concat_classifier = nn.Sequential(
+                nn.Linear(embed_dim*len(param_sets), 1024),
+                nn.ReLU(),
+                nn.Dropout(0.4),
+                nn.Linear(1024, 256),
+                nn.ReLU(),
+                nn.Dropout(0.4),
+                nn.Linear(256, num_classes)
+            )
         else:
             self.encoder = ViTEncoder(img_height=img_height,
                         img_width = img_width,
@@ -398,17 +409,7 @@ class MultiChannelViT(nn.Module):
                         depth=depth,
                         num_heads=num_heads)
         
-        self.first = embed_dim * math.ceil(n_channels)
-        # classifier per output concatenato
-        self.concat_classifier = nn.Sequential(
-            nn.Linear(embed_dim*len(param_sets), 1024),
-            nn.ReLU(),
-            nn.Dropout(0.4),
-            nn.Linear(1024, 256),
-            nn.ReLU(),
-            nn.Dropout(0.4),
-            nn.Linear(256, num_classes)
-        )
+        
 
         # classifier per output singolo
         self.single_classifier2 = nn.Sequential(
@@ -433,7 +434,11 @@ class MultiChannelViT(nn.Module):
                                                    batch_first=True,
                                                    dropout=0.5
                                                    )
-        self.encoder = nn.TransformerEncoder(last_transformer, num_layers=depth)
+        
+        if self.single == False:
+            self.encoder = nn.TransformerEncoder(last_transformer, num_layers=depth)
+        else:
+            self.encoder = self.encoder
         #self.encoder = PretrainedViTEncoder()
         self.norm = nn.LayerNorm(embed_dim)
 
@@ -511,6 +516,7 @@ class MultiChannelViT(nn.Module):
             single_token = self.encoder(x)
             # print(single_token.shape)
             out = self.single_classifier(single_token)      # [B, num_classes]
+            return out
 
         return out, out2
 

@@ -132,6 +132,7 @@ def segment_and_rec_total_augmentation(features, labels, dataset="2a"):
     della stessa classe. Come EEG-Conformer
     """
 
+    rng = np.random.default_rng(2025)
     if dataset == "2a":
         segment_length = 1008 // 8  # 1008 / 8
     elif dataset == "2b":
@@ -152,7 +153,8 @@ def segment_and_rec_total_augmentation(features, labels, dataset="2a"):
             segments = []
             for i in range(num_segments):
                 # Prendi una epoca casuale della stessa classe
-                rand_feat = feats_cls[np.random.randint(0, len(feats_cls))]
+                #rand_feat = feats_cls[np.random.randint(0, len(feats_cls))]
+                rand_feat = feats_cls[rng.integers(0, len(feats_cls))]
                 seg = rand_feat[:, i*segment_length:(i+1)*segment_length]
                 segments.append(seg)
             # Ricompone epoca
@@ -385,7 +387,7 @@ def read_data(path, tmin=2, tmax=6.028, is_test=False, augment = False, filter =
                             tmin=tmin, tmax=tmax, baseline=None, preload=True)
 
         # Carico le etichette vere dal file .mat
-        labels_path = f'./BciCompetitionIv2a/true_labels/A{subj}E.mat'
+        labels_path = f'../Python/BciCompetitionIv2a/true_labels/A{subj}E.mat'
         true = loadmat(labels_path) # La cross-entropy vuole che partano da 0 le labels
         labels = true['classlabel'] - 1
         features=epochs.get_data()
@@ -405,7 +407,7 @@ def read_data(path, tmin=2, tmax=6.028, is_test=False, augment = False, filter =
             epochs = mne.Epochs(raw, events[0], event_id = [6],
                             tmin=tmin, tmax=tmax, baseline=None, preload=True)
         #labels=epochs.events[:,-1] - 7 # converto da [7,8,9,10] a [0,1,2,3]
-        labels_path = f'./BciCompetitionIv2a/true_labels/A{subj}T.mat'
+        labels_path = f'../Python/BciCompetitionIv2a/true_labels/A{subj}T.mat'
         true = loadmat(labels_path) # La cross-entropy vuole che partano da 0 le labels
         labels = true['classlabel'] - 1
         features=epochs.get_data()

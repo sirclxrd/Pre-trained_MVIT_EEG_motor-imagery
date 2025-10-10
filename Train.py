@@ -94,10 +94,10 @@ def training_epoch(model, train_loader, test_loader, val_loader ,criterion, opti
         inputs = random_augmentation(inputs)
 
         optimizer.zero_grad()
-        #outputs, out2 = model(inputs)
-        #loss = (1-LAMBDA) * criterion(outputs, labels) + LAMBDA*criterion(out2, labels)
-        outputs, clstoken = model(inputs)
-        loss = criterion(outputs, labels)
+        outputs, out2 = model(inputs)
+        loss = (1-LAMBDA) * criterion(outputs, labels) + LAMBDA*criterion(out2, labels)
+        #outputs = model(inputs)
+        #loss = criterion(outputs, labels)
         
         if torch.isnan(outputs).any():
             print("NaN negli output del modello!")
@@ -139,10 +139,10 @@ def training_epoch(model, train_loader, test_loader, val_loader ,criterion, opti
                 #labels = labels.to(device).long()
                 labels = labels.to(device).squeeze().long()
 
-                # outputs, out2 = model(inputs)
-                # loss = (1-LAMBDA) * criterion(outputs, labels) + LAMBDA*criterion(out2, labels)
-                outputs, clstoken = model(inputs)
-                loss = criterion(outputs, labels)
+                outputs, out2 = model(inputs)
+                loss = (1-LAMBDA) * criterion(outputs, labels) + LAMBDA*criterion(out2, labels)
+                #outputs = model(inputs)
+                #loss = criterion(outputs, labels)
 
                 val_loss += loss.item()
                 predicted = outputs.argmax(dim=1)# cerca il massimo sulle colonne
@@ -182,8 +182,8 @@ def test_model(model, test_loader, criterion, log_file = "log.txt"):
 
             #tempo per un batch di campioni
             start_time = time.time()
-            #outputs, out2 = model(inputs)
-            outputs, clstoken = model(inputs)
+            outputs, out2 = model(inputs)
+            #outputs = model(inputs)
             end_time = time.time()
 
             #loss = (1-LAMBDA) * criterion(outputs, labels) + LAMBDA*criterion(out2, labels)
@@ -380,7 +380,7 @@ def main(args,config, docker_prefix = "../../../mnt/localstorage/cdeangelis/", r
         # model_1.pth è quello di pretrain
         if config["train"]["load"] == True:
             if config["run"]["val"] == True:
-                checkpoint = torch.load(load_path + "/model_" + "1" + ".pth", map_location=device)
+                checkpoint = torch.load(load_path + "/v_" + subject + ".pth", map_location=device)
             else:
                 checkpoint = torch.load(load_path + "/" + subject + ".pth", map_location=device)
             model.load_state_dict(checkpoint['model_state_dict'])
