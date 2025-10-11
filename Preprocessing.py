@@ -407,7 +407,7 @@ def read_data(path, tmin=2, tmax=6.028, is_test=False, augment = False, filter =
 
     #raw=bandpass_filter_raw(raw)
 
-    raw.set_eeg_reference()
+    #raw.set_eeg_reference()
     events=mne.events_from_annotations(raw)
     if is_test:
         # Carico tutte le epoche disponibili (senza specificare event_id)
@@ -586,7 +586,6 @@ def compute_morlet_spectrogram(features, sfreq, freqs=np.linspace(LOW_FREQ, HIGH
     wvlts = tfr_array_morlet(features, sfreq=sfreq, freqs=freqs,
                              n_cycles=7, output='power', n_jobs=1)
 
-    wvlts = np.log1p(wvlts)
     if mean is None or std is None:
         mean = np.mean(wvlts, axis=(0,1,2), keepdims=True)
         std  = np.std(wvlts, axis=(0,1,2), keepdims=True)

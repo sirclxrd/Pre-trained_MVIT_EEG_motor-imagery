@@ -20,10 +20,10 @@ class TSFF(nn.Module):
         )
 
         self.raw_chanel_conv = nn.Sequential(
-            nn.Conv2d(24, 22, kernel_size=(1, 1), groups=1, bias=False),
-            nn.BatchNorm2d(22),
-            nn.Conv2d(22, 22, kernel_size=(channels, 1), groups=22, bias=False),
-            nn.BatchNorm2d(22),
+            nn.Conv2d(24, 9, kernel_size=(1, 1), groups=1, bias=False),
+            nn.BatchNorm2d(9),
+            nn.Conv2d(9, 9, kernel_size=(channels, 1), groups=9, bias=False),
+            nn.BatchNorm2d(9),
             nn.GELU(),
         )
 
