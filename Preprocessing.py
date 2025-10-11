@@ -131,7 +131,7 @@ def segment_and_rec_total_augmentation(features, labels, dataset="2a"):
     In questo modo creo un nuovo sample completamente nuovo dato dalla concatenzatione con segmenti casuali
     della stessa classe. Come EEG-Conformer
     """
-
+    rng = np.random.default_rng(2025)
     if dataset == "2a":
         segment_length = 1008 // 8  # 1008 / 8
     elif dataset == "2b":
@@ -152,7 +152,8 @@ def segment_and_rec_total_augmentation(features, labels, dataset="2a"):
             segments = []
             for i in range(num_segments):
                 # Prendi una epoca casuale della stessa classe
-                rand_feat = feats_cls[np.random.randint(0, len(feats_cls))]
+                # rand_feat = feats_cls[np.random.randint(0, len(feats_cls))]
+                rand_feat = feats_cls[rng.integers(0, len(feats_cls))]
                 seg = rand_feat[:, i*segment_length:(i+1)*segment_length]
                 segments.append(seg)
             # Ricompone epoca
