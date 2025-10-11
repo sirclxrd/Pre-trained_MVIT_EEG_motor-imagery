@@ -380,7 +380,7 @@ def split_raw_segments(features, labels, num_segments=4):
 #cheby è [4,40]
 #butter è [8,30]
 #tmin=2, tmax=6.028
-def read_data(path, tmin=2, tmax=6.000, is_test=False, augment = False, filter = "Butter"):
+def read_data(path, tmin=2, tmax=6.028, is_test=False, augment = False, filter = "Butter"):
     raw=mne.io.read_raw_gdf(path,preload=True,
                             eog=['EOG-left', 'EOG-central', 'EOG-right'])
     raw.drop_channels(['EOG-left', 'EOG-central', 'EOG-right'])
@@ -588,8 +588,8 @@ def compute_morlet_spectrogram(features, sfreq, freqs=np.linspace(LOW_FREQ, HIGH
 
     wvlts = np.log1p(wvlts)
     if mean is None or std is None:
-        mean = np.mean(wvlts, axis=(0), keepdims=True)
-        std  = np.std(wvlts, axis=(0), keepdims=True)
+        mean = np.mean(wvlts, axis=(0,1,2), keepdims=True)
+        std  = np.std(wvlts, axis=(0,1,2), keepdims=True)
     wvlts = (wvlts - mean) / (std + 1e-10)
     
     wvlts = torch.tensor(wvlts, dtype=torch.float32)
