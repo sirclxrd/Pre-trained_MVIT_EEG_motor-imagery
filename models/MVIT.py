@@ -95,7 +95,7 @@ class PatchEmbedding(nn.Module):
             print("You are using the original VIT patch embedding")
 
         assert height % patch_height == 0 and width % patch_width == 0, \
-            "Le dimensioni dell'immagine devono essere divisibili per la patch size"
+            f"Le dimensioni dell'immagine devono essere divisibili per la patch size {img_height} {img_width}"
 
 
         self.n_patches = (height // patch_height) * (width // patch_width)
@@ -351,6 +351,7 @@ class MultiChannelViT(nn.Module):
                 ViTEncoder(img_height=img_height,
                            img_width = img_width,
                         patch_size=patch_size,
+                        patch_width = patch_size, ##########
                         in_channels=1,
                         embed_dim=embed_dim,
                         depth=depth,
