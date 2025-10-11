@@ -410,7 +410,7 @@ def main(args, config, docker_prefix = "../../../mnt/localstorage/cdeangelis/", 
                     if epoch_val_accuracy >= val_best_acc:
                         val_best_acc = epoch_val_accuracy
                         
-                    save_model(val_loss, i, model, optimizer, scheduler, subject, save_path, config["run"]["scheduler"] )
+                    save_model(val_loss, i, model, optimizer, scheduler, subject, save_path, config["run"]["scheduler"], epoch_loss, epoch_acc, epoch_val_loss, epoch_val_acc)
                 else:
                     early_stop += 1
 
