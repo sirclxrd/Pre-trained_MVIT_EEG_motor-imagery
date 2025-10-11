@@ -142,14 +142,18 @@ def load_only_model(load_path, subject, model, val):
     model.load_state_dict(checkpoint['model_state_dict'])
     return model
 
-def save_model(val_loss, i, model, optimizer, scheduler, subject, save_path, sched_on ):
+def save_model(val_loss, i, model, optimizer, scheduler, subject, save_path, sched_on, epoch_loss, epoch_acc, epoch_val_loss, epoch_val_acc ):
     if sched_on:
         torch.save({
                     'loss': val_loss,
                     'epoch': i,
                     'model_state_dict': model.state_dict(),
                     'optimizer_state_dict': optimizer.state_dict(),
-                    'scheduler_state_dict': scheduler.state_dict()
+                    'scheduler_state_dict': scheduler.state_dict(),
+                    'epoch_loss': epoch_loss,
+                    'epoch_acc': epoch_acc,
+                    'epoch_val_loss': epoch_val_loss,
+                    'epoch_val_acc': epoch_val_acc
         }, save_path + "/v_" +subject + ".pth")
     else:
         torch.save({
