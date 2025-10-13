@@ -17,6 +17,7 @@ import cv2
 import torch.nn.functional as F
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
+import os
 
 # ----------------------------------------
 # Funzioni
@@ -167,39 +168,45 @@ def extract_tsne(model, loader, subj, path):
     plt.close()
 
 
-def plot_loss_and_accuracy(checkpoint, subj, graphs_path):
-    """Plotta train/val loss e accuracy in un'unica immagine."""
+
+def plot_loss_and_accuracy(checkpoint, subject, save_path, val_interval=5):
     train_loss = checkpoint['epoch_loss']
     train_acc = checkpoint['epoch_acc']
     val_loss = checkpoint['epoch_val_loss']
     val_acc = checkpoint['epoch_val_acc']
-    epochs = np.arange(1, len(train_loss) + 1)
 
-    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+    epochs = list(range(1, len(train_loss) + 1))
 
-    # Loss
+    # Aggiungo epoca 0 con il primo valore reale
+    val_epochs = [0] + list(range(val_interval, val_interval * len(val_loss) + 1, val_interval))
+    val_loss = [val_loss[0]] + val_loss
+    val_acc = [val_acc[0]] + val_acc
+
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+
+    # --- LOSS ---
     axes[0].plot(epochs, train_loss, label='Train Loss', color='blue')
-    axes[0].plot(epochs, val_loss, label='Val Loss', color='orange')
-    axes[0].set_xlabel('Epoch')
-    axes[0].set_ylabel('Loss')
-    axes[0].set_title(f'{subj} - Loss')
-    axes[0].grid(True, linestyle='--', alpha=0.5)
+    axes[0].plot(val_epochs, val_loss, label='Val Loss', color='orange')
+    axes[0].set_title(f"Loss - {subject}")
+    axes[0].set_xlabel("Epoch")
+    axes[0].set_ylabel("Loss")
     axes[0].legend()
+    axes[0].grid(True, linestyle='--', alpha=0.6)
 
-    # Accuracy
-    axes[1].plot(epochs, train_acc, label='Train Accuracy', color='green')
-    axes[1].plot(epochs, val_acc, label='Val Accuracy', color='red')
-    axes[1].set_xlabel('Epoch')
-    axes[1].set_ylabel('Accuracy')
-    axes[1].set_title(f'{subj} - Accuracy')
-    axes[1].grid(True, linestyle='--', alpha=0.5)
+    # --- ACCURACY ---
+    axes[1].plot(epochs, train_acc, label='Train Accuracy', color='blue')
+    axes[1].plot(val_epochs, val_acc, label='Val Accuracy', color='orange')
+    axes[1].set_title(f"Accuracy - {subject}")
+    axes[1].set_xlabel("Epoch")
+    axes[1].set_ylabel("Accuracy")
     axes[1].legend()
+    axes[1].grid(True, linestyle='--', alpha=0.6)
 
     plt.tight_layout()
-    save_file = f"{graphs_path}/{subj}_loss_acc.png"
-    plt.savefig(save_file, dpi=300)
+    fig.savefig(os.path.join(save_path, f"loss_accuracy_{subject}.png"), dpi=300, bbox_inches='tight')
     plt.close(fig)
-    print(f"[saved plot] {save_file}")
+
+
 
 
 # ----------------------------------------
