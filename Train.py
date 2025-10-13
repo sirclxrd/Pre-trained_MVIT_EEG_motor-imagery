@@ -25,7 +25,7 @@ VAL_EPOCH = 2
 EARLY_STOP = 20
 TOTAL_SUBJECTS = 9
 SUBJECT = 1
-LAMBDA = 1
+LAMBDA = 0
 
 
 device = 'cuda'
