@@ -316,8 +316,7 @@ class MultiChannelViT(nn.Module):
             single_token = self.encoder(x)
             # print(single_token.shape)
             out = self.single_classifier(single_token)      # [B, num_classes]
-            return out
-
+            concat_token = single_token
         if attn:
             return out,attn_weights, concat_token
         else:

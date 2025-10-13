@@ -5,7 +5,7 @@ import torch
 from models.MVIT import MultiChannelViT
 import torch.nn as nn
 import time
-from utils import (visualize_train_loss_acc, load_config, create_checkpoints_folders, 
+from utils import (load_config, create_checkpoints_folders, 
                    append_to_log_file, plot_confusion_matrix)
 import random
 import argparse
@@ -17,6 +17,7 @@ import cv2
 import torch.nn.functional as F
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
+import os
 
 # ----------------------------------------
 # Funzioni
@@ -31,7 +32,8 @@ def apply_confidence_threshold(probs, preds, thr=0.6):
 
 
 device = 'cuda'
-def test_model(model, test_loader, criterion, log_file = "log.txt"):
+
+def test_model(model, test_loader, criterion, log_file="log.txt"):
     model.to(device)
     model.eval()
 
@@ -50,7 +52,7 @@ def test_model(model, test_loader, criterion, log_file = "log.txt"):
             labels = labels.to(device).squeeze().long()
 
             start_time = time.time()
-            outputs, token = model(inputs)
+            outputs, _ = model(inputs)
             end_time = time.time()
 
             loss = criterion(outputs, labels)
@@ -68,7 +70,7 @@ def test_model(model, test_loader, criterion, log_file = "log.txt"):
 
     avg_loss = running_loss / batch
     accuracy = correct / total
-    avg_inference_time = np.mean(inference_times) / inputs.shape[0]  # per campione
+    avg_inference_time = np.mean(inference_times) / inputs.shape[0]
 
     txt = f"[TEST] Loss: {avg_loss:.4f} | Accuracy: {accuracy:.4f} | Avg Inference Time: {avg_inference_time*1000:.2f} ms/sample"
     print(txt)
@@ -83,26 +85,12 @@ def test_model(model, test_loader, criterion, log_file = "log.txt"):
     txt = f"[TEST] Accuracy (thresholded): {thresholded_accuracy:.4f}"
     append_to_log_file(log_file, txt)
 
-    # --- Calcolo Cohen's Kappa ---
     kappa = cohen_kappa_score(all_labels, all_preds)
     txt = f"[TEST] Cohen's Kappa: {kappa:.4f}"
     print(txt)
     append_to_log_file(log_file, txt)
 
     return avg_loss, accuracy, all_preds, all_labels, kappa
-
-
-def cls_token_importance(fc_layer, embed_dim=768, n_channels=22):
-    importances = []
-    for i in range(n_channels):
-        w_i = fc_layer.weight[:, i*embed_dim:(i+1)*embed_dim]
-        imp_i = torch.norm(w_i, p=2).item()
-        importances.append((i, imp_i))
-    importances.sort(key=lambda x: x[1], reverse=True)
-    print("Channel ranking by CLS token importance:")
-    for idx, imp in importances:
-        print(f"Channel {idx}: importance = {imp:.4f}")
-    return importances
 
 
 def compute_grid_from_tokens(num_patches, H):
@@ -179,6 +167,48 @@ def extract_tsne(model, loader, subj, path):
     plt.savefig(f"{path}/tsne_features_{subj}.png", dpi=300, bbox_inches='tight')
     plt.close()
 
+
+
+def plot_loss_and_accuracy(checkpoint, subject, save_path, val_interval=5):
+    train_loss = checkpoint['epoch_loss']
+    train_acc = checkpoint['epoch_acc']
+    val_loss = checkpoint['epoch_val_loss']
+    val_acc = checkpoint['epoch_val_acc']
+
+    epochs = list(range(1, len(train_loss) + 1))
+
+    # Aggiungo epoca 0 con il primo valore reale
+    val_epochs = [0] + list(range(val_interval, val_interval * len(val_loss) + 1, val_interval))
+    val_loss = [val_loss[0]] + val_loss
+    val_acc = [val_acc[0]] + val_acc
+
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+
+    # --- LOSS ---
+    axes[0].plot(epochs, train_loss, label='Train Loss', color='blue')
+    axes[0].plot(val_epochs, val_loss, label='Val Loss', color='orange')
+    axes[0].set_title(f"Loss - {subject}")
+    axes[0].set_xlabel("Epoch")
+    axes[0].set_ylabel("Loss")
+    axes[0].legend()
+    axes[0].grid(True, linestyle='--', alpha=0.6)
+
+    # --- ACCURACY ---
+    axes[1].plot(epochs, train_acc, label='Train Accuracy', color='blue')
+    axes[1].plot(val_epochs, val_acc, label='Val Accuracy', color='orange')
+    axes[1].set_title(f"Accuracy - {subject}")
+    axes[1].set_xlabel("Epoch")
+    axes[1].set_ylabel("Accuracy")
+    axes[1].legend()
+    axes[1].grid(True, linestyle='--', alpha=0.6)
+
+    plt.tight_layout()
+    fig.savefig(os.path.join(save_path, f"loss_accuracy_{subject}.png"), dpi=300, bbox_inches='tight')
+    plt.close(fig)
+
+
+
+
 # ----------------------------------------
 # Main
 # ----------------------------------------
@@ -196,7 +226,7 @@ def main(args, config, docker_prefix="../", root_2a="../", root_2b="../"):
     s_kappa = []
     save_path, graphs_path, log_path = create_checkpoints_folders(args.config, config["model"]["single"], docker_prefix=docker_prefix)
 
-    mean_cm = None  # per accumulare confusion matrix
+    mean_cm = None
 
     for n in range(9):
         subject_test = f"A0{n+1}"
@@ -219,12 +249,13 @@ def main(args, config, docker_prefix="../", root_2a="../", root_2b="../"):
 
         checkpoint = torch.load(load_path)
         model.load_state_dict(checkpoint['model_state_dict'])
-        last_epoch = checkpoint['epoch'] + 1
-        print("Epoch=", last_epoch)
+        print("Epoch=", checkpoint['epoch']+1)
         print("Train loss=", checkpoint['loss'])
 
+        # ➕ Plot Loss + Accuracy
+        # plot_loss_and_accuracy(checkpoint, subject_test, graphs_path)
+
         avg_loss, avg_acc, all_preds, all_labels, kappa = test_model(model, test_loader, criterion)
-        #importances = cls_token_importance(model.concat_classifier[0])
 
         txt = f"Accuracy on {subject_test} is {avg_acc:.4f} | Kappa: {kappa:.4f}"
         append_to_log_file(log_path, txt)
@@ -236,17 +267,14 @@ def main(args, config, docker_prefix="../", root_2a="../", root_2b="../"):
         s_accuracy.append(avg_acc)
         s_kappa.append(kappa)
 
-        # Aggiorna la confusion matrix media
         if mean_cm is None:
             mean_cm = cm.astype(np.float64)
         else:
             mean_cm += cm
 
-    # --- Mean Confusion Matrix ---
     mean_cm /= 9
     plot_confusion_matrix(mean_cm, graphs_path + "/mean_confusion_matrix")
 
-    # --- Grafico a barre per accuracy ---
     subjects = [f"S{i+1}" for i in range(9)]
     plt.figure(figsize=(10, 5))
     plt.bar(subjects, s_accuracy)
@@ -258,7 +286,6 @@ def main(args, config, docker_prefix="../", root_2a="../", root_2b="../"):
     plt.savefig(graphs_path + "/accuracy_barplot.png", dpi=300, bbox_inches='tight')
     plt.close()
 
-    # --- Media finale ---
     txt = f"Mean accuracy {np.mean(s_accuracy):.4f} | Mean Cohen's Kappa {np.mean(s_kappa):.4f}"
     print(txt)
     append_to_log_file(log_path, txt)
