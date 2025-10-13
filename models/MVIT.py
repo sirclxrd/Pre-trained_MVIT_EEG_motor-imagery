@@ -370,36 +370,12 @@ class MultiChannelViT(nn.Module):
             # tokens = torch.stack(tokens, dim=1)
             # attn_output = self.eeg_attention(tokens)
             # out = self.single_classifier(attn_output)
-        # SINGLE VIT
-        elif self.single == False and group == True:
-            tokens = []
-            channels = []
-            n_channels = x.shape[1]
-            step = 3
-            for i, encoder in enumerate(self.encoders):
-                start_idx = i * step
-                end_idx = start_idx + step
-                
-                # Prendo i canali da start_idx a end_idx
-                channel_i = x[:, start_idx:end_idx, :, :]  # [B, fino a 3, H, W]
-                
-                # Se ultimi canali < 3, replico l'ultimo canale
-                if channel_i.shape[1] < step:
-                    last_channel = channel_i[:, -1:, :, :]
-                    reps = step - channel_i.shape[1]
-                    extra = last_channel.repeat(1, reps, 1, 1)
-                    channel_i = torch.cat([channel_i, extra], dim=1) 
-                
-                token = encoder(channel_i)  # encoder si aspetta input con 3 canali
-                tokens.append(token)
-            concat_token = torch.cat(tokens, dim=-1)  # concatena su dimensione embed
-            out = self.concat_classifier(concat_token)
         else:
             single_token = self.encoder(x)
             # print(single_token.shape)
             out = self.single_classifier(single_token)      # [B, num_classes]
 
-        return out
+        return out, pooled
 
 
 class MultiChannelViTSelfSupervised(nn.Module):
