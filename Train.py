@@ -462,6 +462,6 @@ if __name__ == '__main__':
     parser.add_argument('--config', type=str, default='configs/single_config_16_2_2.yaml')
     args = parser.parse_args()
     config = load_config(args.config)
-    root_2a = "./BciCompetitionIv2a/Train"
+    root_2a = "../Python/BciCompetitionIv2a/Train"
     root_2b = "../Python/BciCompetitionIv2b"
     main(args,config, docker_prefix="../", root_2a=root_2a, root_2b = root_2b)

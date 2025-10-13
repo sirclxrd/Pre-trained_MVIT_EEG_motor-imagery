@@ -385,7 +385,7 @@ def read_data(path, tmin=2, tmax=6.028, is_test=False, augment = False, filter =
                             tmin=tmin, tmax=tmax, baseline=None, preload=True)
 
         # Carico le etichette vere dal file .mat
-        labels_path = f'./BciCompetitionIv2a/true_labels/A{subj}E.mat'
+        labels_path = f'../Python/BciCompetitionIv2a/true_labels/A{subj}E.mat'
         true = loadmat(labels_path) # La cross-entropy vuole che partano da 0 le labels
         labels = true['classlabel'] - 1
         features=epochs.get_data()
@@ -405,7 +405,7 @@ def read_data(path, tmin=2, tmax=6.028, is_test=False, augment = False, filter =
             epochs = mne.Epochs(raw, events[0], event_id = [6],
                             tmin=tmin, tmax=tmax, baseline=None, preload=True)
         #labels=epochs.events[:,-1] - 7 # converto da [7,8,9,10] a [0,1,2,3]
-        labels_path = f'./BciCompetitionIv2a/true_labels/A{subj}T.mat'
+        labels_path = f'../Python/BciCompetitionIv2a/true_labels/A{subj}T.mat'
         true = loadmat(labels_path) # La cross-entropy vuole che partano da 0 le labels
         labels = true['classlabel'] - 1
         features=epochs.get_data()
