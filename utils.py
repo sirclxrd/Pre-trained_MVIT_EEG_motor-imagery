@@ -20,7 +20,7 @@ def plot_spectrogram(wavelet_features, epoch=0, channel=0, freqs=np.linspace(LOW
     power = wavelet_features[epoch, channel, :, :]
     times = np.arange(power.shape[1]) / sfreq
     plt.imshow(power, aspect='auto', origin='lower',
-               extent=[times[0], times[-1], freqs[0], freqs[-1]]) #sono il punto di inizio asse x, fine asse x, inizio y, fine y
+               extent=[times[0], times[-1], freqs[0], freqs[-1]])
     plt.xlabel('Time (s)')
     plt.ylabel('Frequency (Hz)')
     plt.colorbar(label='Power')
@@ -28,28 +28,23 @@ def plot_spectrogram(wavelet_features, epoch=0, channel=0, freqs=np.linspace(LOW
     plt.show()
 
 def visualize_patches_grid(x, patch_size = 16):
-    """
-    Visualizza le patch come una mappa (griglia) ricostruita dalla divisione dell'immagine.
-    Mostra il primo esempio del batch.
-    """
     B, C, H, W = x.shape
     ph, pw = patch_size, patch_size
     assert H % ph == 0 and W % pw == 0, "L'immagine deve essere divisibile per la patch size"
     n_h = H // ph
     n_w = W // pw
-    # Estrai le patch grezze
     patches = rearrange(x, 'b c (h ph) (w pw) -> b (h w) ph pw c', ph=ph, pw=pw)
-    patches = patches[0]  # primo batch
+    patches = patches[0]  
     fig, axes = plt.subplots(n_h, n_w, figsize=(n_w, n_h))
     for i in range(n_h):
         for j in range(n_w):
             idx = i * n_w + j
-            patch = patches[idx]  # [ph, pw, C]
+            patch = patches[idx] 
 
             if C == 1:
                 axes[i, j].imshow(patch.squeeze(-1), cmap='gray')
             else:
-                axes[i, j].imshow(patch[:,:,0], cmap="viridis") #visualizza solo il primo canale
+                axes[i, j].imshow(patch[:,:,0], cmap="viridis") 
             
             axes[i, j].axis('off')
     
@@ -132,17 +127,14 @@ def append_to_log_file(filepath, text):
     with open(filepath, 'a') as f:
         f.write(text + "\n")  
 
-# togliere top1 che è per l'ensamble
 def load_only_model(load_path, subject, model, val):
     if val == False:
         checkpoint = torch.load(load_path + "/" + subject + ".pth", map_location='cuda')
     else:
         checkpoint = torch.load(load_path + "/v_" + subject + ".pth", map_location='cuda')
-        #checkpoint = torch.load(load_path + "/val_M" + subject + ".pth", map_location='cuda')
     model.load_state_dict(checkpoint['model_state_dict'])
     return model
 
-#val_ è quello pretrainato fino a graph3, ora provo v_
 def save_model(val_loss, i, model, optimizer, scheduler, subject, save_path, sched_on, epoch_loss, epoch_acc, epoch_val_loss, epoch_val_acc ):
     if sched_on:
         torch.save({
@@ -166,25 +158,6 @@ def save_model(val_loss, i, model, optimizer, scheduler, subject, save_path, sch
 
         
 
-def average_models(model, model_paths, device='cuda'):
-
-    # Carica tutti gli state dict
-    state_dicts = [ torch.load(p, map_location=device)['model_state_dict'] for p in model_paths ]
-
-    # Copia il primo come base
-    avg_sd = state_dicts[0].copy()
-    N = len(state_dicts)
-
-    for key in avg_sd:
-        if avg_sd[key].dtype.is_floating_point:
-            # Stack e media
-            stacked = torch.stack([sd[key] for sd in state_dicts], dim=0)
-            avg_sd[key] = torch.mean(stacked, dim=0)
-
-    # Crea il modello e carica i pesi mediati
-    model.load_state_dict(avg_sd)
-    return model
-
 def flatten_dict(d, parent_key='', sep='.'):
     """Appiattisce un dizionario annidato."""
     items = []
@@ -199,10 +172,8 @@ def flatten_dict(d, parent_key='', sep='.'):
 def config_csv(config, csv_path = "logfile.csv", mean_accuracy = "0.25"):
     flat_config = flatten_dict(config)
 
-    # aggiungi altre metriche, es. total_test_acc
     flat_config['test.mean_accuracy'] = mean_accuracy
 
-    # Scrittura CSV (aggiunge intestazione solo se file non esiste)
     file_exists = os.path.isfile(csv_path)
     with open(csv_path, mode='a', newline='') as csv_file:
         writer = csv.DictWriter(csv_file, fieldnames=flat_config.keys())
@@ -218,12 +189,10 @@ def subject_csv(acc_list, csv_path="logfile_subjects.csv",testname="Test1"):
     with open(csv_path, mode='a', newline='') as f:
         writer = csv.writer(f)
 
-        # Scrive intestazione solo se il file non esiste
         if not file_exists:
             header = ["test_name"] + subject_ids
             writer.writerow(header)
 
-        # Scrive la nuova riga di accuracy
         row = [testname] + acc_list
         writer.writerow(row)
 

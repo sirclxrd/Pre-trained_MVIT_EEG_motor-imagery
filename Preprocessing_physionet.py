@@ -17,8 +17,6 @@ import random
 import scipy
 import torch.nn.functional as F
 from Preprocessing import EEGSpectrogramDataset, channel_normalization, compute_morlet_spectrogram, read_data_physionet
-
-
 from sklearn.preprocessing import StandardScaler
 import numpy as np
 

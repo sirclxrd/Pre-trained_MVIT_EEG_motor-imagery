@@ -19,9 +19,7 @@ from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
 import os
 
-# ----------------------------------------
-# Funzioni
-# ----------------------------------------
+
 
 def apply_confidence_threshold(probs, preds, thr=0.6):
     out = preds.copy()
@@ -177,7 +175,6 @@ def plot_loss_and_accuracy(checkpoint, subject, save_path, val_interval=5):
 
     epochs = list(range(1, len(train_loss) + 1))
 
-    # Aggiungo epoca 0 con il primo valore reale
     val_epochs = [0] + list(range(val_interval, val_interval * len(val_loss) + 1, val_interval))
     val_loss = [val_loss[0]] + val_loss
     val_acc = [val_acc[0]] + val_acc
@@ -252,7 +249,7 @@ def main(args, config, docker_prefix="../", root_2a="../", root_2b="../"):
         print("Epoch=", checkpoint['epoch']+1)
         print("Train loss=", checkpoint['loss'])
 
-        # ➕ Plot Loss + Accuracy
+        # Plot Loss + Accuracy
         # plot_loss_and_accuracy(checkpoint, subject_test, graphs_path)
 
         avg_loss, avg_acc, all_preds, all_labels, kappa = test_model(model, test_loader, criterion)

@@ -56,7 +56,6 @@ def test_model(model, test_loader, criterion, log_file = "log.txt"):
 
     txt = f"[TEST] Loss: {avg_loss:.4f} | Accuracy: {accuracy:.4f} | Avg Inference Time: {avg_inference_time*1000:.2f} ms/sample"
     print(txt)
-    #append_to_log_file(log_file, txt)
     return avg_loss, accuracy
 
 seed_n = 2025
@@ -81,7 +80,6 @@ for n in range(9):
     #load_path = "Single_checkpoints/16_2_2/val_" + subject + ".pth"
     load_path = save_path + "/" +subject_test + ".pth"
     model = MultiChannelViT(**config["model"])
-    #model = pret_MVIT(n_channels=22, img_height = 64, img_width = 1008, patch_size=PATCH_SIZE, embed_dim=768, num_classes=4, single=SINGLE)
 
     model = model.to(device=device)
     criterion = nn.CrossEntropyLoss() #contiene già una softmax

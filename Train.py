@@ -4,7 +4,6 @@ from torch.utils.data import Dataset, DataLoader,Subset
 from torch.optim.lr_scheduler import LambdaLR, CosineAnnealingLR
 import torch
 from models.MVIT import MultiChannelViT
-from models.pret_MVIT import pret_MVIT
 import torch.nn as nn
 import time
 from utils import (visualize_train_loss_acc, load_config, create_checkpoints_folders, 
@@ -43,7 +42,6 @@ def time_masking(spectrogram, T=30):
     return spectrogram
 
 def channel_dropout(spectrogram, drop_prob=0.2):
-    """Azzeramento casuale di alcuni canali"""
     B, C, H, W = spectrogram.shape
     mask = torch.rand(C) > drop_prob
     mask = mask.float().view(1, C, 1, 1)
@@ -51,18 +49,6 @@ def channel_dropout(spectrogram, drop_prob=0.2):
     return spectrogram * mask
 
 def random_augmentation(spectrogram):
-    """
-    Applica casualmente una di queste 3 augmentations oppure nessuna:
-    - additive_noise
-    - frequency_masking
-    - time_masking
-    
-    Args:
-        spectrogram: tensor [B, C, H, W]
-        
-    Returns:
-        spectrogram trasformato
-    """
     augmentations = [
         lambda x: frequency_masking(x, F=15),
         lambda x: time_masking(x, T=500),
@@ -112,7 +98,6 @@ def training_epoch(model, train_loader, test_loader, val_loader ,criterion, opti
         total += labels.size(0)
         correct += (predicted == labels).sum().item()
         batch = batch + 1
-        #print("Batch: ", batch)
 
     if scheduler is not None:
         scheduler.step()
@@ -122,7 +107,6 @@ def training_epoch(model, train_loader, test_loader, val_loader ,criterion, opti
     print(txt)
     append_to_log_file(log_file, txt)
 
-    # Validation ogni 5 epoche
     if (epoch + 1) % VAL_EPOCH == 0 and val_loader is not None:
         batch = 0
         val_loss = 0.0
@@ -210,33 +194,20 @@ def test_model(model, test_loader, criterion, log_file = "log.txt"):
 
 def get_epoch_cosine_schedule_with_warmup(optimizer, warmup_epochs, total_epochs, min_lr_ratio=0.01):
     def lr_lambda(epoch):
-        # Warmup lineare
         if epoch < warmup_epochs:
             return float(epoch + 1) / float(warmup_epochs)
-        # Decadimento cosinusoidale dopo il warmup con valore minimo
         else:
             progress = (epoch - warmup_epochs) / float(total_epochs - warmup_epochs)
             cosine_decay = 0.5 * (1.0 + math.cos(math.pi * progress))
-            # scala in modo che arrivi a min_lr_ratio invece di 0
             return cosine_decay * (1 - min_lr_ratio) + min_lr_ratio
     
     return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
-
-def _init_weights(m):
-    if isinstance(m, nn.Linear):
-        trunc_normal_(m.weight, std=.02)
-        if isinstance(m, nn.Linear) and m.bias is not None:
-            nn.init.constant_(m.bias, 0)
-    elif isinstance(m, nn.LayerNorm):
-        nn.init.constant_(m.bias, 0)
-        nn.init.constant_(m.weight, 1.0)
 
 
 
 def main(args,config, docker_prefix = "../../../mnt/localstorage/cdeangelis/", root_2a = "./BciCompetitionIv2a/Train", root_2b = "./BciCompetitionIv2b"):
     print(device)
 
-    #seed_n = np.random.randint(2025)
     seed_n = 2025
     print('seed is ' + str(seed_n))
     random.seed(seed_n)
@@ -247,7 +218,6 @@ def main(args,config, docker_prefix = "../../../mnt/localstorage/cdeangelis/", r
     total_test_acc = []
 
     EPOCHS = config["train"]["epochs"]
-    # creo il modello
 
     save_path, graphs_path, log_path = create_checkpoints_folders(args.config, config["model"]["single"], docker_prefix = docker_prefix)
     load_path = save_path
@@ -258,54 +228,9 @@ def main(args,config, docker_prefix = "../../../mnt/localstorage/cdeangelis/", r
         early_stop = 0
         stopped = False
 
-        if config["run"]["pret"] == False:
-        #    model_test = MultiChannelViTSelfSupervised(**config["model"])
-            model = MultiChannelViT(**config["model"])
-        #     reloc_loss_fn = RelativeLocalizationLoss(
-        #     embed_dim=768,
-        #     grid_shape=(2, 63),  # perché 32x1008 con patch 16
-        # )   
-            #reloc_loss_fn.to(device)
-            # from timm.models.vision_transformer import VisionTransformer
-
-            # model = VisionTransformer(
-            # img_size=(32, 1008),     # <-- la tua dimensione
-            # patch_size=16,
-            # in_chans=22,
-            # num_classes=4,
-            # embed_dim=768,
-            # depth=2,
-            # num_heads=2,
-            # mlp_ratio=4,
-            # drop_rate = 0.5,
-            # attn_drop_rate = 0.5,
-            # drop_path_rate = 0.5,
-            # weight_init='jax_nlhb'
-            # )
-            
-            # from timm.models import create_model
-            # model = create_model(
-            #     'deit_base_distilled_patch16_224',
-            #     pretrained=False,  # carichiamo i pesi manualmente dopo
-            #     img_size=(32, 1008),
-            #     in_chans=22,
-            #     num_classes=4
-            # )
-            # _init_weights(model)
-            #conv_like_init(model)
-        else:
-            model = pret_MVIT(n_channels=config["model"]["n_channels"], img_height = config["model"]["img_height"], 
-                          img_width = config["model"]["img_width"], patch_size=config["model"]["patch_size"], 
-                          embed_dim=config["model"]["embed_dim"], num_classes=config["model"]["num_classes"], 
-                          single=config["model"]["single"])
+        model = MultiChannelViT(**config["model"])
         model=model.to(device=device)
-        criterion = nn.CrossEntropyLoss() #contiene già una softmax ###########
-        # for param in model.parameters():
-        #     param.requires_grad = False
-        # for param in model.encoder.parameters():
-        #     param.requires_grad = True       
-        # for param in model.single_classifier.parameters():
-        #     param.requires_grad = True
+        criterion = nn.CrossEntropyLoss()
         optimizer = torch.optim.Adam(
             model.parameters(),
             lr=config["train"]["lr"],
@@ -314,7 +239,6 @@ def main(args,config, docker_prefix = "../../../mnt/localstorage/cdeangelis/", r
 
         if config["run"]["scheduler"]:
             scheduler = get_epoch_cosine_schedule_with_warmup(optimizer, warmup_epochs=0.05*EPOCHS, total_epochs=EPOCHS)
-            #scheduler = CosineAnnealingLR(optimizer, T_max=EPOCHS, eta_min=5e-4)
         else:
             scheduler = None
 
@@ -350,13 +274,11 @@ def main(args,config, docker_prefix = "../../../mnt/localstorage/cdeangelis/", r
                     real_indices = np.where(is_real == 1)[0]
                     aug_indices  = np.where(is_real == 0)[0]
 
-                    # Splitto solo i dati reali per creare il validation
                     indices = np.random.permutation(len(real_indices))
                     train_len = int(0.8 * len(indices))
                     train_real = real_indices[:train_len]
                     val_real   = real_indices[train_len:]
 
-                    # Aggiungo dati augmentati solo al training
                     train_indices = np.concatenate([train_real, aug_indices])
                     val_indices = val_real
                 else:
@@ -376,30 +298,19 @@ def main(args,config, docker_prefix = "../../../mnt/localstorage/cdeangelis/", r
             #################################
             test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
-        # per caricare il modello, RICORDA DI CONTROLLARE ANCHE SE SAVE_MODEL E' LO STESSO
-        # model_1.pth è quello di pretrain
+
         if config["train"]["load"] == True:
             if config["run"]["val"] == True:
                 checkpoint = torch.load(load_path + "/model" + ".pth", map_location=device)
             else:
                 checkpoint = torch.load(load_path + "/" + subject + ".pth", map_location=device)
             model.load_state_dict(checkpoint['model_state_dict'])
-            #optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-            #scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
             model.to(device)
-            #last_epoch = checkpoint['epoch'] + 1  # Per riprendere
             if 'epoch_loss' in checkpoint:
                 epoch_loss= checkpoint['epoch_loss']
                 epoch_acc= checkpoint['epoch_acc']
                 epoch_val_loss= checkpoint['epoch_val_loss']
                 epoch_val_acc= checkpoint['epoch_val_acc']
-
-            # import copy
-            # model.encoder = copy.deepcopy(model_test.encoder)
-            # for param in model.parameters():
-            #     param.requires_grad = False  
-            # for param in model.single_classifier.parameters():
-            #     param.requires_grad = True
 
         append_to_log_file(log_path, f"Train on subject {subject}")
         for i in range(EPOCHS):
@@ -420,13 +331,7 @@ def main(args,config, docker_prefix = "../../../mnt/localstorage/cdeangelis/", r
 
                 if early_stop == EARLY_STOP and stopped == False:
                     append_to_log_file(log_path, f"Early stop at epoch {i}")
-                    #_, test_acc = test_model(model, test_loader=test_loader, criterion=criterion, log_file = log_path)
                     break
-                    stopped = True
-
-                # salvo quando sta per fermarsi
-                # if early_stop == 1:
-                #     save_model(val_loss, i, model, optimizer, scheduler, subject, save_path, config["run"]["scheduler"] )
 
                 epoch_val_loss.append(val_loss)
                 epoch_val_acc.append(epoch_val_accuracy)
