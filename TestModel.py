@@ -19,16 +19,6 @@ from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
 import os
 
-# ----------------------------------------
-# Funzioni
-# ----------------------------------------
-
-def apply_confidence_threshold(probs, preds, thr=0.6):
-    out = preds.copy()
-    for t in range(1, len(preds)):
-        if probs[t].max() < thr:
-            out[t] = out[t-1]
-    return out
 
 
 device = 'cuda'
@@ -79,11 +69,6 @@ def test_model(model, test_loader, criterion, log_file="log.txt"):
     all_probs = np.concatenate(all_probs, axis=0)
     all_preds = np.concatenate(all_preds)
     all_labels = np.concatenate(all_labels)
-
-    thresholded_preds = apply_confidence_threshold(all_probs, all_preds, 0.3)
-    thresholded_accuracy = (thresholded_preds == all_labels).mean()
-    txt = f"[TEST] Accuracy (thresholded): {thresholded_accuracy:.4f}"
-    append_to_log_file(log_file, txt)
 
     kappa = cohen_kappa_score(all_labels, all_preds)
     txt = f"[TEST] Cohen's Kappa: {kappa:.4f}"
@@ -177,7 +162,6 @@ def plot_loss_and_accuracy(checkpoint, subject, save_path, val_interval=5):
 
     epochs = list(range(1, len(train_loss) + 1))
 
-    # Aggiungo epoca 0 con il primo valore reale
     val_epochs = [0] + list(range(val_interval, val_interval * len(val_loss) + 1, val_interval))
     val_loss = [val_loss[0]] + val_loss
     val_acc = [val_acc[0]] + val_acc
@@ -207,11 +191,6 @@ def plot_loss_and_accuracy(checkpoint, subject, save_path, val_interval=5):
     plt.close(fig)
 
 
-
-
-# ----------------------------------------
-# Main
-# ----------------------------------------
 
 def main(args, config, docker_prefix="../", root_2a="../", root_2b="../"):
     seed_n = 2025
@@ -252,7 +231,7 @@ def main(args, config, docker_prefix="../", root_2a="../", root_2b="../"):
         print("Epoch=", checkpoint['epoch']+1)
         print("Train loss=", checkpoint['loss'])
 
-        # ➕ Plot Loss + Accuracy
+        # Plot Loss + Accuracy
         # plot_loss_and_accuracy(checkpoint, subject_test, graphs_path)
 
         avg_loss, avg_acc, all_preds, all_labels, kappa = test_model(model, test_loader, criterion)

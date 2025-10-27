@@ -4,7 +4,6 @@ from torch.utils.data import Dataset, DataLoader,Subset
 from torch.optim.lr_scheduler import LambdaLR, CosineAnnealingLR
 import torch
 from models.MVIT import MultiChannelViT
-from models.pret_MVIT import pret_MVIT
 import torch.nn as nn
 import time
 from utils import (visualize_train_loss_acc, load_config, create_checkpoints_folders, 
@@ -52,11 +51,10 @@ def training_epoch(model, train_loader, test_loader, val_loader ,criterion, opti
         
 
         running_loss += loss.item()
-        _, predicted = torch.max(outputs.data, 1)# cerca il massimo sulle colonne
+        _, predicted = torch.max(outputs.data, 1)
         total += labels.size(0)
         correct += (predicted == labels).sum().item()
         batch = batch + 1
-        #print("Batch: ", batch)
 
     if scheduler is not None:
         scheduler.step()
@@ -66,7 +64,6 @@ def training_epoch(model, train_loader, test_loader, val_loader ,criterion, opti
     print(txt)
     append_to_log_file(log_file, txt)
 
-    # Validation ogni 5 epoche
     if (epoch + 1) % 2 == 0 and val_loader is not None:
         batch = 0
         val_loss = 0.0
@@ -114,7 +111,6 @@ def test_model(model, test_loader, criterion, log_file = "log.txt"):
             inputs = inputs.to(device).float()
             labels = labels.to(device).squeeze().long()
 
-            #tempo per un batch di campioni
             start_time = time.time()
             outputs = model(inputs)
             end_time = time.time()
@@ -140,28 +136,14 @@ def test_model(model, test_loader, criterion, log_file = "log.txt"):
 
 def get_epoch_cosine_schedule_with_warmup(optimizer, warmup_epochs, total_epochs):
     def lr_lambda(epoch):
-        # Warmup lineare
         if epoch < warmup_epochs:
             return float(epoch + 1) / float(warmup_epochs)
-        # Cosine decay
         else:
             decay_ratio = (epoch - warmup_epochs) / float(total_epochs - warmup_epochs)
             return 0.5 * (1.0 + math.cos(math.pi * decay_ratio))
     
     return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
 
-def init_weights(m):
-    if isinstance(m, nn.Linear):
-        nn.init.trunc_normal_(m.weight, std=.02)
-        if m.bias is not None:
-            nn.init.zeros_(m.bias)
-    elif isinstance(m, nn.Conv2d):
-        nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
-        if m.bias is not None:
-            nn.init.zeros_(m.bias)
-    elif isinstance(m, nn.LayerNorm):
-        nn.init.ones_(m.weight)
-        nn.init.zeros_(m.bias)
 
 def save_model(val_loss, i, model, optimizer, scheduler, subject, save_path, sched_on ):
     if sched_on:
@@ -182,13 +164,8 @@ def save_model(val_loss, i, model, optimizer, scheduler, subject, save_path, sch
 
 if __name__ == '__main__':
     print(device)
-    #data_path = "/home/pfoggia/GenerativeAI/CELEBA/"
-    #data_path = ".\CELEBA-20250604T155043Z-1-001\CELEBA"
-    #save_path = "/home/C.DEANGELIS29/cond_test/VAE_models/"
-    #load_path = "/home/C.DEANGELIS29/cond_test/VAE_models/ddpm3Cond98.pth"
     docker_prefix = "../../../mnt/localstorage/cdeangelis/"
 
-    #seed_n = np.random.randint(2025)
     seed_n = 2025
     print('seed is ' + str(seed_n))
     random.seed(seed_n)
@@ -204,7 +181,6 @@ if __name__ == '__main__':
     total_test_acc = []
 
     EPOCHS = config["train"]["epochs"]
-    # creo il modello
 
     save_path, graphs_path, log_path = create_checkpoints_folders(args.config, config["model"]["single"], docker_prefix = docker_prefix)
     load_path = save_path
@@ -215,44 +191,18 @@ if __name__ == '__main__':
         early_stop = 0
         stopped = False
 
-        if config["run"]["pret"] == False:
-            model = MultiChannelViT(**config["model"])
-            # from timm.models.vision_transformer import VisionTransformer
-
-            # model = VisionTransformer(
-            # img_size=(32, 1008),     # <-- la tua dimensione
-            # patch_size=16,
-            # in_chans=22,
-            # num_classes=4,
-            # embed_dim=768,
-            # depth=2,
-            # num_heads=2,
-            # mlp_ratio=4,
-            # drop_rate = 0.5,
-            # attn_drop_rate = 0.5,
-            # drop_path_rate = 0.5
-            # )
-            #init_weights(model)
-        else:
-            model = pret_MVIT(n_channels=config["model"]["n_channels"], img_height = config["model"]["img_height"], 
-                          img_width = config["model"]["img_width"], patch_size=config["model"]["patch_size"], 
-                          embed_dim=config["model"]["embed_dim"], num_classes=config["model"]["num_classes"], 
-                          single=config["model"]["single"])
+        model = MultiChannelViT(**config["model"])
         model=model.to(device=device)
-        criterion = nn.CrossEntropyLoss() #contiene già una softmax ###########
+        criterion = nn.CrossEntropyLoss()
         optimizer = torch.optim.Adam(
             model.parameters(), 
             lr=config["train"]["lr"],
-            weight_decay=0.01  #weight decay 0.05, 0.005 è più lento ma l'andamento è giusto 
+            weight_decay=0.01
         )
 
-        # steps_per_epoch = ceil(288 / config["train"]["batch_size"])
-        # total_steps = steps_per_epoch * EPOCHS
-        # warmup_steps = int(0.1 * total_steps)
 
         if config["run"]["scheduler"]:
             scheduler = get_epoch_cosine_schedule_with_warmup(optimizer, warmup_epochs=0.1*EPOCHS, total_epochs=EPOCHS)
-            #scheduler = CosineAnnealingLR(optimizer, T_max=EPOCHS, eta_min=1e-7)
         else:
             scheduler = None
 
@@ -269,26 +219,22 @@ if __name__ == '__main__':
         epoch_val_acc = []
         val_best_acc = 0
         val_acc = 0
-        # prendo train e test
         subject = "A0"+str(n+1) ##########
         print("Subject ",subject)
         print("------------------")
         batch_size = config["train"]["batch_size"]
-        train_subjects = [f"A0{i+1}" for i in range(9) if i!= n] #dataset di tutti tranne l'n-esimo
+        train_subjects = [f"A0{i+1}" for i in range(9) if i!= n]
         combined_datasets = [
             ConcatDataset(prepare_dataloaders(
                 subject_id=subj,
                 augment=config["run"]["augment"],
                 filter=config["train"]["filter"],
                 BCI = config["run"]["dataset"]
-            ))  # unisce train e test per ogni soggetto
+            ))
             for subj in train_subjects
         ]
 
-        # Ora unisco tutti i soggetti in un unico dataset
         full_dataset = ConcatDataset(combined_datasets)
-
-        #splitto in train e validation solo se specificato nel file
         if config["run"]["val"]:
             indices = np.random.permutation(len(full_dataset))
             total_len = len(indices)
@@ -313,7 +259,6 @@ if __name__ == '__main__':
             train_loader = DataLoader(full_dataset, batch_size=batch_size, shuffle=True)
         #################################
 
-        # per caricare il modello
         if config["train"]["load"] == True:
             if config["run"]["val"] == True:
                 checkpoint = torch.load(load_path + "/val_" + subject + ".pth", map_location=device)
@@ -356,21 +301,9 @@ if __name__ == '__main__':
                 
 
             epoch_loss.append(loss)
-            epoch_acc.append(epoch_accuracy)
-
-            # if loss < best_loss:
-            #     best_loss = loss
-            #     torch.save({
-            #         'loss': loss,
-            #         'epoch': i,
-            #         'model_state_dict': model.state_dict(),
-            #         'optimizer_state_dict': optimizer.state_dict()
-            #     }, save_path + "/" +subject + ".pth")
-
-            
+            epoch_acc.append(epoch_accuracy)            
             print("EPOCA"+ str(i)+ " finita ")
 
-        #_, test_acc = test_model(model, test_loader=test_loader, criterion=criterion, log_file = log_path)
         model = load_only_model(load_path, subject, model, config["run"]["val"]) #carica il modello con la best loss
         print("Test", subject)
         _, test_acc = test_model(model, test_loader=test_loader, criterion=criterion, log_file = log_path)
