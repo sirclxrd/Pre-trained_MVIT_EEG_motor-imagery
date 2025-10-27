@@ -4,7 +4,6 @@ from torch.utils.data import Dataset, DataLoader,Subset, ConcatDataset
 from torch.optim.lr_scheduler import LambdaLR, CosineAnnealingLR, ReduceLROnPlateau
 import torch
 from models.MVIT import MultiChannelViT
-from models.pret_MVIT import pret_MVIT
 import torch.nn as nn
 import time
 from utils import (visualize_train_loss_acc, load_config, create_checkpoints_folders, 
@@ -18,7 +17,7 @@ from math import ceil
 import math
 from torch.optim import AdamW
 from timm.models.vision_transformer import VisionTransformer
-
+from torch.utils.data import ConcatDataset
 from Preprocessing_physionet import preprocess_physionet
 
 
@@ -39,7 +38,6 @@ def time_masking(spectrogram, T=30):
     return spectrogram
 
 def channel_dropout(spectrogram, drop_prob=0.2):
-    """Azzeramento casuale di alcuni canali"""
     B, C, H, W = spectrogram.shape
     mask = torch.rand(C) > drop_prob
     mask = mask.float().view(1, C, 1, 1)
@@ -47,18 +45,6 @@ def channel_dropout(spectrogram, drop_prob=0.2):
     return spectrogram * mask
 
 def random_augmentation(spectrogram):
-    """
-    Applica casualmente una di queste 3 augmentations oppure nessuna:
-    - additive_noise
-    - frequency_masking
-    - time_masking
-    
-    Args:
-        spectrogram: tensor [B, C, H, W]
-        
-    Returns:
-        spectrogram trasformato
-    """
     augmentations = [
         lambda x: frequency_masking(x, F=6),
         lambda x: time_masking(x, T=200),
@@ -87,21 +73,18 @@ def training_epoch(model, train_loader, val_loader ,criterion, optimizer,schedul
         outputs, out2 = model(inputs)
         loss = (1-LAMBDA) * criterion(outputs, labels) + LAMBDA*criterion(out2, labels)
         loss.backward()
-        #torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0) #######
         total_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
         if total_norm > 5.0:
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=2.0)
         print(f"Gradient norm: {total_norm.item()}")
         optimizer.step()
-        # if scheduler is not None:
-        #     scheduler.step()
+
 
         running_loss += loss.item()
-        _, predicted = torch.max(outputs.data, 1)# cerca il massimo sulle colonne
+        _, predicted = torch.max(outputs.data, 1)
         total += labels.size(0)
         correct += (predicted == labels).sum().item()
         batch = batch + 1
-        #print("Batch: ", batch)
 
     if scheduler is not None:
         scheduler.step()
@@ -111,7 +94,6 @@ def training_epoch(model, train_loader, val_loader ,criterion, optimizer,schedul
     print(txt)
     append_to_log_file(log_file, txt)
 
-    # Validation ogni 2 epoche
     if (epoch + 1) % 2 == 0 and val_loader is not None:
         batch = 0
         val_loss = 0.0
@@ -128,7 +110,7 @@ def training_epoch(model, train_loader, val_loader ,criterion, optimizer,schedul
                 loss = (1-LAMBDA) * criterion(outputs, labels) + LAMBDA*criterion(out2, labels)
 
                 val_loss += loss.item()
-                _, predicted = torch.max(outputs.data, 1)# cerca il massimo sulle colonne
+                _, predicted = torch.max(outputs.data, 1)
                 val_total += labels.size(0)
                 val_correct += (predicted == labels).sum().item()
                 batch = batch + 1
@@ -155,11 +137,9 @@ def test_model(model, test_loader, criterion, log_file = "log.txt"):
 
     with torch.no_grad():
         for inputs, labels in test_loader:
-            #inputs = inputs.squeeze(2)
             inputs = inputs.to(device).float()
             labels = labels.to(device).squeeze().long()
 
-            #tempo per un batch di campioni
             start_time = time.time()
             outputs, out2 = model(inputs)
             end_time = time.time()
@@ -176,7 +156,7 @@ def test_model(model, test_loader, criterion, log_file = "log.txt"):
 
     avg_loss = running_loss / batch
     accuracy = correct / total
-    avg_inference_time = np.mean(inference_times) / inputs.shape[0]  # per campione
+    avg_inference_time = np.mean(inference_times) / inputs.shape[0]  
 
     txt = f"[TEST] Loss: {avg_loss:.4f} | Accuracy: {accuracy:.4f} | Avg Inference Time: {avg_inference_time*1000:.2f} ms/sample"
     print(txt)
@@ -185,40 +165,21 @@ def test_model(model, test_loader, criterion, log_file = "log.txt"):
 
 def get_epoch_cosine_schedule_with_warmup(optimizer, warmup_epochs, total_epochs):
     def lr_lambda(epoch):
-        # Warmup lineare
         if epoch < warmup_epochs:
             return float(epoch + 1) / float(warmup_epochs)
-        # Decadimento lineare dopo il warmup
         else:
             progress = (epoch - warmup_epochs) / float(total_epochs - warmup_epochs)
-            return max(0.0, 1.0 - progress)  # scende linearmente fino a 0
+            return max(0.0, 1.0 - progress) 
     
     return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
-
-def init_weights(m):
-    if isinstance(m, nn.Linear):
-        nn.init.trunc_normal_(m.weight, std=.02)
-        if m.bias is not None:
-            nn.init.zeros_(m.bias)
-    elif isinstance(m, nn.Conv2d):
-        nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
-        if m.bias is not None:
-            nn.init.zeros_(m.bias)
-    elif isinstance(m, nn.LayerNorm):
-        nn.init.ones_(m.weight)
-        nn.init.zeros_(m.bias)
 
 
 if __name__ == '__main__':
     print(device)
-    #data_path = "/home/pfoggia/GenerativeAI/CELEBA/"
-    #data_path = ".\CELEBA-20250604T155043Z-1-001\CELEBA"
-    #save_path = "/home/C.DEANGELIS29/cond_test/VAE_models/"
-    #load_path = "/home/C.DEANGELIS29/cond_test/VAE_models/ddpm3Cond98.pth"
+
     docker_prefix = "../../../mnt/localstorage/cdeangelis/"
     torch.autograd.set_detect_anomaly(True)
 
-    #seed_n = np.random.randint(2025)
     seed_n = 2025
     print('seed is ' + str(seed_n))
     random.seed(seed_n)
@@ -234,52 +195,22 @@ if __name__ == '__main__':
     total_test_acc = []
 
     EPOCHS = config["train"]["epochs"]
-    # creo il modello
 
     save_path, graphs_path, log_path = create_checkpoints_folders(args.config, config["model"]["single"], docker_prefix = docker_prefix)
     load_path = save_path
     save_path = save_path
     print("Save_path:",save_path)
-
-    
-
-    if config["run"]["pret"] == False:
-        model = MultiChannelViT(**config["model"])
-
-        # model = VisionTransformer(
-        # img_size=(32, 1008),     # <-- la tua dimensione
-        # patch_size=16,
-        # in_chans=22,
-        # num_classes=4,
-        # embed_dim=768,
-        # depth=2,
-        # num_heads=2,
-        # mlp_ratio=4,
-        # drop_rate = 0.3,
-        # attn_drop_rate = 0.3,
-        # drop_path_rate = 0.3
-        # )
-        #init_weights(model)
-    else:
-        model = pret_MVIT(n_channels=config["model"]["n_channels"], img_height = config["model"]["img_height"], 
-                        img_width = config["model"]["img_width"], patch_size=config["model"]["patch_size"], 
-                        embed_dim=config["model"]["embed_dim"], num_classes=config["model"]["num_classes"], 
-                        single=config["model"]["single"])
+    model = MultiChannelViT(**config["model"])
     model=model.to(device=device)
-    criterion = nn.CrossEntropyLoss() #contiene già una softmax ###########
+    criterion = nn.CrossEntropyLoss() 
     optimizer = torch.optim.Adam(
             model.parameters(),
             lr=config["train"]["lr"],
             weight_decay = 0.01        
             )
 
-    # steps_per_epoch = ceil(288 / config["train"]["batch_size"])
-    # total_steps = steps_per_epoch * EPOCHS
-    # warmup_steps = int(0.1 * total_steps)
-
     if config["run"]["scheduler"]:
-            scheduler = get_epoch_cosine_schedule_with_warmup(optimizer, warmup_epochs=0.1*EPOCHS, total_epochs=EPOCHS)
-            #scheduler = CosineAnnealingLR(optimizer, T_max=EPOCHS, eta_min=5e-4)
+        scheduler = get_epoch_cosine_schedule_with_warmup(optimizer, warmup_epochs=0.1*EPOCHS, total_epochs=EPOCHS)
     else:
         scheduler = None
 
@@ -305,7 +236,7 @@ if __name__ == '__main__':
             for subj in train_subjects
         ]
 
-        from torch.utils.data import ConcatDataset
+        
         train_dataset = ConcatDataset(train_datasets)
 
         if config["run"]["val"]:
@@ -323,14 +254,13 @@ if __name__ == '__main__':
             val_loader = None
             train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     else:
-        all_subjects = list(range(1, 110))  # 1..109 inclusi
+        all_subjects = list(range(1, 110)) #physionet test
         exclude = [88, 92, 100, 104]
         subjects = [s for s in all_subjects if s not in exclude]
 
         train_val_subjects = subjects[:84]
         test_subjects = subjects[84:]
 
-        # ---- Colleziona i dataset ----
         train_datasets = []
         val_datasets = []
         test_datasets = []
@@ -345,7 +275,6 @@ if __name__ == '__main__':
                 train_l = 0.89,
                 valid_l = 0.10
             )
-            # prendo i dataset interni dai loader
             train_datasets.append(train_loader.dataset)
             val_datasets.append(val_loader.dataset)
 
@@ -360,20 +289,15 @@ if __name__ == '__main__':
             )
             test_datasets.append(test_loader.dataset)
 
-        # ---- Concatena i dataset ----
         train_dataset = ConcatDataset(train_datasets)
         val_dataset   = ConcatDataset(val_datasets)
         test_dataset  = ConcatDataset(test_datasets)
 
-        # ---- Crea i loader globali ----
         train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
         val_loader   = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
         test_loader  = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
         
         
-
-
-    # per caricare il modello
     if config["train"]["load"] == True:
         if config["run"]["val"] == True:
             checkpoint = torch.load(load_path + "/val_model" + ".pth", map_location=device)
@@ -408,12 +332,8 @@ if __name__ == '__main__':
 
             if early_stop >= 25 and stopped == False:
                 append_to_log_file(log_path, f"Early stop at epoch {i}")
-                #_, test_acc = test_model(model, test_loader=test_loader, criterion=criterion, log_file = log_path)
                 stopped = True
                 break
-
-
-
 
             epoch_val_loss.append(val_loss)
             epoch_val_acc.append(epoch_val_accuracy)
@@ -431,7 +351,6 @@ if __name__ == '__main__':
                 'epoch': i,
                 'model_state_dict': model.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict()
-                #'scheduler_state_dict': scheduler.state_dict()
             }, save_path + "/model" +".pth")
 
         
@@ -443,14 +362,8 @@ if __name__ == '__main__':
         subject = "A0"+str(n+1) ##########
         print("Subject ",subject)
         print("------------------")
-        #test_dataset = prepare_dataloaders(subject_id = subject, augment = config["run"]["augment"], filter=config["train"]["filter"], onlytest=True, BCI = config["run"]["dataset"]) #choose if augment dataset
-        #test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
-
-        #append_to_log_file(log_path, f"Last Epoch model subject {subject}")
-        #_, test_acc = test_model(model, test_loader=test_loader, criterion=criterion, log_file = log_path)
-
         print("Test", subject)
-        model = load_only_model(load_path, "pret_physio", model, config["run"]["val"]) #carica il modello con la best loss
+        model = load_only_model(load_path, "pret_physio", model, config["run"]["val"])
         txt = f"Test on subj {subject}"
         append_to_log_file(log_path, txt)
         _, test_acc = test_model(model, test_loader=test_loader, criterion=criterion, log_file = log_path)
@@ -462,6 +375,6 @@ if __name__ == '__main__':
     txt = f"The mean accuracy is: {np.mean(total_test_acc)}"
     append_to_log_file(log_path, txt)
     txt = f"{args.config}, The mean accuracy is: {np.mean(total_test_acc)}"
-    append_to_log_file("total.txt", txt) #per un insieme di tutti i risultati
-    config_csv(config, mean_accuracy=str(np.mean(total_test_acc))) #scrive i risultati su un file csv
+    append_to_log_file("total.txt", txt)
+    config_csv(config, mean_accuracy=str(np.mean(total_test_acc)))
     subject_csv(total_test_acc, testname=config["info"]["test_name"])
