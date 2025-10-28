@@ -78,13 +78,8 @@ class TSFF(nn.Module):
 
 
     def forward(self, x_frequency):
-        # features for frequency graph
         x_frequency = self.frequency_features(x_frequency)
         x_frequency = x_frequency.view(x_frequency.size(0), -1)
-
-
         weighted_features = x_frequency
-
         x = self.classifier(weighted_features)
-
         return x

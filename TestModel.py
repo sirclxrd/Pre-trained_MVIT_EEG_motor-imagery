@@ -18,16 +18,6 @@ import torch.nn.functional as F
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
 
-# ----------------------------------------
-# Funzioni
-# ----------------------------------------
-
-def apply_confidence_threshold(probs, preds, thr=0.6):
-    out = preds.copy()
-    for t in range(1, len(preds)):
-        if probs[t].max() < thr:
-            out[t] = out[t-1]
-    return out
 
 
 device = 'cuda'
@@ -77,13 +67,6 @@ def test_model(model, test_loader, criterion, log_file = "log.txt"):
     all_probs = np.concatenate(all_probs, axis=0)
     all_preds = np.concatenate(all_preds)
     all_labels = np.concatenate(all_labels)
-
-    thresholded_preds = apply_confidence_threshold(all_probs, all_preds, 0.3)
-    thresholded_accuracy = (thresholded_preds == all_labels).mean()
-    txt = f"[TEST] Accuracy (thresholded): {thresholded_accuracy:.4f}"
-    append_to_log_file(log_file, txt)
-
-    # --- Calcolo Cohen's Kappa ---
     kappa = cohen_kappa_score(all_labels, all_preds)
     txt = f"[TEST] Cohen's Kappa: {kappa:.4f}"
     print(txt)
@@ -179,10 +162,6 @@ def extract_tsne(model, loader, subj, path):
     plt.savefig(f"{path}/tsne_features_{subj}.png", dpi=300, bbox_inches='tight')
     plt.close()
 
-# ----------------------------------------
-# Main
-# ----------------------------------------
-
 def main(args, config, docker_prefix="../", root_2a="../", root_2b="../"):
     seed_n = 2025
     print('seed is ' + str(seed_n))
@@ -196,7 +175,7 @@ def main(args, config, docker_prefix="../", root_2a="../", root_2b="../"):
     s_kappa = []
     save_path, graphs_path, log_path = create_checkpoints_folders(args.config, config["model"]["single"], docker_prefix=docker_prefix)
 
-    mean_cm = None  # per accumulare confusion matrix
+    mean_cm = None
 
     for n in range(9):
         subject_test = f"A0{n+1}"
@@ -224,29 +203,23 @@ def main(args, config, docker_prefix="../", root_2a="../", root_2b="../"):
         print("Train loss=", checkpoint['loss'])
 
         avg_loss, avg_acc, all_preds, all_labels, kappa = test_model(model, test_loader, criterion)
-        #importances = cls_token_importance(model.concat_classifier[0])
-
         txt = f"Accuracy on {subject_test} is {avg_acc:.4f} | Kappa: {kappa:.4f}"
         append_to_log_file(log_path, txt)
 
         cm = confusion_matrix(all_labels, all_preds)
         plot_confusion_matrix(cm, graphs_path+"/cm_"+subject_test)
-        #extract_tsne(model, test_loader, subject_test, graphs_path)
 
         s_accuracy.append(avg_acc)
         s_kappa.append(kappa)
 
-        # Aggiorna la confusion matrix media
         if mean_cm is None:
             mean_cm = cm.astype(np.float64)
         else:
             mean_cm += cm
 
-    # --- Mean Confusion Matrix ---
     mean_cm /= 9
     plot_confusion_matrix(mean_cm, graphs_path + "/mean_confusion_matrix")
 
-    # --- Grafico a barre per accuracy ---
     subjects = [f"S{i+1}" for i in range(9)]
     plt.figure(figsize=(10, 5))
     plt.bar(subjects, s_accuracy)
@@ -258,7 +231,6 @@ def main(args, config, docker_prefix="../", root_2a="../", root_2b="../"):
     plt.savefig(graphs_path + "/accuracy_barplot.png", dpi=300, bbox_inches='tight')
     plt.close()
 
-    # --- Media finale ---
     txt = f"Mean accuracy {np.mean(s_accuracy):.4f} | Mean Cohen's Kappa {np.mean(s_kappa):.4f}"
     print(txt)
     append_to_log_file(log_path, txt)

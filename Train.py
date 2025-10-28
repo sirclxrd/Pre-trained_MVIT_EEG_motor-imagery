@@ -4,7 +4,6 @@ from torch.utils.data import Dataset, DataLoader,Subset
 from torch.optim.lr_scheduler import LambdaLR, CosineAnnealingLR
 import torch
 from models.MVIT import TSFF
-from models.pret_MVIT import pret_MVIT
 import torch.nn as nn
 import time
 from utils import (visualize_train_loss_acc, load_config, create_checkpoints_folders, 
@@ -56,11 +55,10 @@ def training_epoch(model, train_loader, test_loader, val_loader ,criterion, opti
         append_to_log_file(log_file, txt)
         optimizer.step()
         running_loss += loss.item()
-        predicted = outputs.argmax(dim=1)# cerca il massimo sulle colonne
+        predicted = outputs.argmax(dim=1)
         total += labels.size(0)
         correct += (predicted == labels).sum().item()
         batch = batch + 1
-        #print("Batch: ", batch)
 
     if scheduler is not None:
         scheduler.step()
@@ -70,7 +68,6 @@ def training_epoch(model, train_loader, test_loader, val_loader ,criterion, opti
     print(txt)
     append_to_log_file(log_file, txt)
 
-    # Validation ogni 5 epoche
     if (epoch + 1) % VAL_EPOCH == 0 and val_loader is not None:
         batch = 0
         val_loss = 0.0
@@ -80,14 +77,13 @@ def training_epoch(model, train_loader, test_loader, val_loader ,criterion, opti
         with torch.no_grad():
             for inputs, labels in val_loader:
                 inputs = inputs.to(device).float()
-                #labels = labels.to(device).long()
                 labels = labels.to(device).squeeze().long()
 
                 outputs = model(inputs)
                 loss = criterion(outputs, labels)
 
                 val_loss += loss.item()
-                predicted = outputs.argmax(dim=1)# cerca il massimo sulle colonne
+                predicted = outputs.argmax(dim=1)
                 val_total += labels.size(0)
                 val_correct += (predicted == labels).sum().item()
                 batch = batch + 1
@@ -118,11 +114,9 @@ def test_model(model, test_loader, criterion, log_file = "log.txt"):
                 print(inputs.shape)
                 inputs = inputs.unsqueeze(1)
                 print(inputs.shape)
-            #inputs = inputs.squeeze(2)
             inputs = inputs.to(device).float()
             labels = labels.to(device).squeeze().long()
 
-            #tempo per un batch di campioni
             start_time = time.time()
             #outputs, out2 = model(inputs)
             outputs = model(inputs)
@@ -143,7 +137,7 @@ def test_model(model, test_loader, criterion, log_file = "log.txt"):
 
     avg_loss = running_loss / batch
     accuracy = correct / total
-    avg_inference_time = np.sum(inference_times) / total  # per campione
+    avg_inference_time = np.sum(inference_times) / total 
 
     txt = f"[TEST] Loss: {avg_loss:.4f} | Accuracy: {accuracy:.4f} | Avg Inference Time: {avg_inference_time*1000:.2f} ms/sample"
     print(txt)
@@ -152,31 +146,18 @@ def test_model(model, test_loader, criterion, log_file = "log.txt"):
 
 def get_epoch_cosine_schedule_with_warmup(optimizer, warmup_epochs, total_epochs):
     def lr_lambda(epoch):
-        # Warmup lineare
         if epoch < warmup_epochs:
             return float(epoch + 1) / float(warmup_epochs)
-        # Decadimento lineare dopo il warmup
         else:
             progress = (epoch - warmup_epochs) / float(total_epochs - warmup_epochs)
-            return max(0.0, 1.0 - progress)  # scende linearmente fino a 0
+            return max(0.0, 1.0 - progress)
     
     return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
-
-def _init_weights(m):
-    if isinstance(m, nn.Linear):
-        trunc_normal_(m.weight, std=.02)
-        if isinstance(m, nn.Linear) and m.bias is not None:
-            nn.init.constant_(m.bias, 0)
-    elif isinstance(m, nn.LayerNorm):
-        nn.init.constant_(m.bias, 0)
-        nn.init.constant_(m.weight, 1.0)
-
 
 
 def main(args, config, docker_prefix = "../../../mnt/localstorage/cdeangelis/", root_2a="../BciCompetitionIv2a/Train", root_2b = "../BciCompetitionIv2b"):
     print(device)
 
-    #seed_n = np.random.randint(2025)
     seed_n = 2025
     print('seed is ' + str(seed_n))
     random.seed(seed_n)
@@ -192,7 +173,6 @@ def main(args, config, docker_prefix = "../../../mnt/localstorage/cdeangelis/", 
     total_test_acc = []
 
     EPOCHS = config["train"]["epochs"]
-    # creo il modello
 
     save_path, graphs_path, log_path = create_checkpoints_folders(args.config, config["model"]["single"], docker_prefix = docker_prefix)
     load_path = save_path
@@ -207,17 +187,14 @@ def main(args, config, docker_prefix = "../../../mnt/localstorage/cdeangelis/", 
             model = TSFF()
 
         model=model.to(device=device)
-        criterion = nn.CrossEntropyLoss() #contiene già una softmax ###########
+        criterion = nn.CrossEntropyLoss()
 
-        #!!!!!!!!!!!!!!!!!!!!!!!!!
         optimizer = torch.optim.AdamW(
             model.parameters()            
-            #weight_decay = 0.01        
             )
 
         if config["run"]["scheduler"]:
             scheduler = get_epoch_cosine_schedule_with_warmup(optimizer, warmup_epochs=0.05*EPOCHS, total_epochs=EPOCHS)
-            #scheduler = CosineAnnealingLR(optimizer, T_max=EPOCHS, eta_min=5e-4)
         else:
             scheduler = None
 
@@ -245,19 +222,16 @@ def main(args, config, docker_prefix = "../../../mnt/localstorage/cdeangelis/", 
         else:
             train_dataset, test_dataset = prepare_dataloaders(subject_id = subject, augment = config["run"]["augment"], filter=config["train"]["filter"], BCI = config["run"]["dataset"], root=root_2a, root_2b = root_2b) #choose if augment dataset
 
-        #splitto in train e validation solo se specificato nel file
         if config["run"]["val"]:
             if config["run"]["augment"]:
                 real_indices = np.where(is_real == 1)[0]
                 aug_indices  = np.where(is_real == 0)[0]
 
-                # Splitto solo i dati reali per creare il validation
                 indices = np.random.permutation(len(real_indices))
                 train_len = int(0.8 * len(indices))
                 train_real = real_indices[:train_len]
                 val_real   = real_indices[train_len:]
 
-                # Aggiungo dati augmentati solo al training
                 train_indices = np.concatenate([train_real, aug_indices])
                 val_indices = val_real
             else:
@@ -277,18 +251,13 @@ def main(args, config, docker_prefix = "../../../mnt/localstorage/cdeangelis/", 
         #################################
         test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
-        # per caricare il modello, RICORDA DI CONTROLLARE ANCHE SE SAVE_MODEL E' LO STESSO
-        # model_1.pth è quello di pretrain
         if config["train"]["load"] == True:
             if config["run"]["val"] == True:
                 checkpoint = torch.load(load_path + "/model_" + "1" + ".pth", map_location=device)
             else:
                 checkpoint = torch.load(load_path + "/" + subject + ".pth", map_location=device)
             model.load_state_dict(checkpoint['model_state_dict'])
-            #optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-            #scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
             model.to(device)
-            #last_epoch = checkpoint['epoch'] + 1  # Per riprendere
             if 'epoch_loss' in checkpoint:
                 epoch_loss= checkpoint['epoch_loss']
                 epoch_acc= checkpoint['epoch_acc']
@@ -313,14 +282,7 @@ def main(args, config, docker_prefix = "../../../mnt/localstorage/cdeangelis/", 
 
                 if early_stop == EARLY_STOP and stopped == False:
                     append_to_log_file(log_path, f"Early stop at epoch {i}")
-                    #_, test_acc = test_model(model, test_loader=test_loader, criterion=criterion, log_file = log_path)
                     break
-                    stopped = True
-
-                # salvo quando sta per fermarsi
-                # if early_stop == 1:
-                #     save_model(val_loss, i, model, optimizer, scheduler, subject, save_path, config["run"]["scheduler"] )
-
                 epoch_val_loss.append(val_loss)
                 epoch_val_acc.append(epoch_val_accuracy)
             else:
