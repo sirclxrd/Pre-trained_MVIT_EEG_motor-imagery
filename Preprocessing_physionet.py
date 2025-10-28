@@ -17,8 +17,6 @@ import random
 import scipy
 import torch.nn.functional as F
 from Preprocessing import EEGSpectrogramDataset, channel_normalization, compute_morlet_spectrogram, read_data_physionet
-
-
 from sklearn.preprocessing import StandardScaler
 import numpy as np
 
@@ -54,7 +52,6 @@ class ChannelNormalizer:
         return self.transform(features)
 
 def preprocess_physionet(subject_id='A09', augment=False, filter="Butter", batch_size=32):
-    # Carico dati (qui assumo che read_data_physionet ritorni anche is_real se augment=True)
     if augment:
         x, y, is_real = read_data_physionet(
             "./BciPhysionet", subject=subject_id, preload=True, augment=augment, filter=filter

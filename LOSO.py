@@ -4,7 +4,6 @@ from torch.utils.data import Dataset, DataLoader,Subset
 from torch.optim.lr_scheduler import LambdaLR, CosineAnnealingLR
 import torch
 from models.MVIT import MultiChannelViT
-from models.pret_MVIT import pret_MVIT
 import torch.nn as nn
 import time
 from utils import (visualize_train_loss_acc, load_config, create_checkpoints_folders, 
@@ -35,7 +34,6 @@ def test_model(model, test_loader, criterion, log_file = "log.txt"):
             inputs = inputs.to(device).float()
             labels = labels.to(device).squeeze().long()
 
-            #tempo per un batch di campioni
             start_time = time.time()
             outputs = model(inputs)
             end_time = time.time()
@@ -56,7 +54,6 @@ def test_model(model, test_loader, criterion, log_file = "log.txt"):
 
     txt = f"[TEST] Loss: {avg_loss:.4f} | Accuracy: {accuracy:.4f} | Avg Inference Time: {avg_inference_time*1000:.2f} ms/sample"
     print(txt)
-    #append_to_log_file(log_file, txt)
     return avg_loss, accuracy
 
 seed_n = 2025
@@ -78,13 +75,11 @@ save_path, graphs_path, log_path = create_checkpoints_folders(args.config, confi
 for n in range(9):
     subject_test = f"A0{n+1}"
     batch_size = 32
-    #load_path = "Single_checkpoints/16_2_2/val_" + subject + ".pth"
     load_path = save_path + "/" +subject_test + ".pth"
     model = MultiChannelViT(**config["model"])
-    #model = pret_MVIT(n_channels=22, img_height = 64, img_width = 1008, patch_size=PATCH_SIZE, embed_dim=768, num_classes=4, single=SINGLE)
 
     model = model.to(device=device)
-    criterion = nn.CrossEntropyLoss() #contiene già una softmax
+    criterion = nn.CrossEntropyLoss() 
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
     train_dataset, test_dataset = prepare_dataloaders(subject_id = subject_test, onlytest = False, filter = config["train"]["filter"])
     dataset = [train_dataset, test_dataset]
@@ -93,8 +88,7 @@ for n in range(9):
     checkpoint = torch.load(load_path)
     model.load_state_dict(checkpoint['model_state_dict'])
     optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-    #scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
-    last_epoch = checkpoint['epoch'] + 1  # Per riprendere
+    last_epoch = checkpoint['epoch'] + 1 
     loss = checkpoint['loss']
     print("Epoch=", last_epoch)
     print("Train loss=", loss)
