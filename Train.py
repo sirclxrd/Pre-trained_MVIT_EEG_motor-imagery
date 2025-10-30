@@ -76,7 +76,7 @@ def training_epoch(model, train_loader, test_loader, val_loader ,criterion, opti
 
         inputs = inputs.to(device).float()
         labels = labels.to(device).squeeze().long()
-        inputs = random_augmentation(inputs)
+        #inputs = random_augmentation(inputs)
 
         optimizer.zero_grad()
         outputs, out2 = model(inputs)
@@ -226,7 +226,7 @@ def main(args,config, docker_prefix = "../../../mnt/localstorage/cdeangelis/", r
     for n in range (TOTAL_SUBJECTS):
         early_stop = 0
         stopped = False
-        model = MultiChannelViT(**config["model"])
+        model = MultiChannelViT(**config["model"], dataset=config["run"]["dataset"])
         model=model.to(device=device)
         criterion = nn.CrossEntropyLoss()
         optimizer = torch.optim.Adam(
