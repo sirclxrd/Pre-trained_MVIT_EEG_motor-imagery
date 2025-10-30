@@ -301,7 +301,7 @@ def main(args,config, docker_prefix = "../../../mnt/localstorage/cdeangelis/", r
 
         if config["train"]["load"] == True:
             if config["run"]["val"] == True:
-                checkpoint = torch.load(load_path + "/model" + ".pth", map_location=device)
+                checkpoint = torch.load(load_path + "/v_" + subject +".pth", map_location=device)
             else:
                 checkpoint = torch.load(load_path + "/" + subject + ".pth", map_location=device)
             model.load_state_dict(checkpoint['model_state_dict'])
