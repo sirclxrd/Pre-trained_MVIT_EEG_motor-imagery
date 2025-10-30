@@ -3,7 +3,7 @@ import numpy as np
 from torch.utils.data import Dataset, DataLoader,Subset
 from torch.optim.lr_scheduler import LambdaLR, CosineAnnealingLR
 import torch
-from models.MVIT import MultiChannelViT, MultiChannelViTSelfSupervised
+from models.MVIT import MultiChannelViT
 import torch.nn as nn
 import time
 from utils import (visualize_train_loss_acc, load_config, create_checkpoints_folders, 
@@ -76,7 +76,7 @@ def training_epoch(model, train_loader, test_loader, val_loader ,criterion, opti
 
         inputs = inputs.to(device).float()
         labels = labels.to(device).squeeze().long()
-        inputs = random_augmentation(inputs)
+        #inputs = random_augmentation(inputs)
 
         optimizer.zero_grad()
         outputs = model(inputs)
@@ -202,7 +202,7 @@ def get_epoch_cosine_schedule_with_warmup(optimizer, warmup_epochs, total_epochs
 
 def main(args, config, docker_prefix = "../../../mnt/localstorage/cdeangelis/", root_2a = "./BciCompetitionIv2a/Train", root_2b = "./BciCompetitionIv2b"):
     print(device)
-    seed_n = 2025
+    seed_n = 1
     print('seed is ' + str(seed_n))
     random.seed(seed_n)
     np.random.seed(seed_n)
