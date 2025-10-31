@@ -351,7 +351,7 @@ def main(args,config, docker_prefix = "../../../mnt/localstorage/cdeangelis/", r
         print("EPOCA"+ str(i)+ " finita ")
     visualize_train_loss_acc(epoch_loss, epoch_acc, epoch_val_loss, epoch_val_acc, save_path=graphs_path + "/model_loss")
 
-    for n in range (21):
+    for n in range (9):
         # prendo train e test
         subject = "A0"+str(n+1) ##########
         print("Subject ",subject)
@@ -373,11 +373,11 @@ def main(args,config, docker_prefix = "../../../mnt/localstorage/cdeangelis/", r
     config_csv(config, mean_accuracy=str(np.mean(total_test_acc)))
     subject_csv(total_test_acc, testname=config["info"]["test_name"])
 
-    if __name__ == '__main__':
-        parser = argparse.ArgumentParser()
-        parser.add_argument('--config', type=str, default='configs/single_config_16_2_2.yaml')
-        args = parser.parse_args()
-        config = load_config(args.config)
-        root_2a = "../Python/BciCompetitionIv2a/Train"
-        root_2b = "../Python/BciCompetitionIv2b"
-        main(args,config, docker_prefix="../", root_2a=root_2a, root_2b = root_2b)
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--config', type=str, default='configs/single_config_16_2_2.yaml')
+    args = parser.parse_args()
+    config = load_config(args.config)
+    root_2a = "../Python/BciCompetitionIv2a/Train"
+    root_2b = "../Python/BciCompetitionIv2b"
+    main(args,config, docker_prefix="../", root_2a=root_2a, root_2b = root_2b)
