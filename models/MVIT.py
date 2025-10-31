@@ -2,7 +2,6 @@ import torch
 import torch.nn as nn
 
 class TSFF(nn.Module):
-
     def __init__(self, img_weight=0.02, width=224, length=224, num_classes=4, samples=1001, channels=22, avepool=25):
         super(TSFF, self).__init__()
         self.channel_weight = nn.Parameter(torch.randn(22, 1, channels), requires_grad=True)
