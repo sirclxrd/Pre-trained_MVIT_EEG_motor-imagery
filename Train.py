@@ -80,6 +80,7 @@ def training_epoch(model, train_loader, test_loader, val_loader ,criterion, opti
         inputs = random_augmentation(inputs)
 
         optimizer.zero_grad()
+        
         #outputs, out2 = model(inputs)
         #loss = (1-LAMBDA) * criterion(outputs, labels) + LAMBDA*criterion(out2, labels)
         outputs, _ = model(inputs)
