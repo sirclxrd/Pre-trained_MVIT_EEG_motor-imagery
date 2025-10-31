@@ -77,6 +77,7 @@ def training_epoch(model, train_loader, test_loader, val_loader ,criterion, opti
 
         inputs = inputs.to(device).float()
         labels = labels.to(device).squeeze().long()
+
         #inputs = random_augmentation(inputs)
 
         optimizer.zero_grad()
