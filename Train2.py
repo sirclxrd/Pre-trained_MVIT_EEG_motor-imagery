@@ -174,11 +174,9 @@ def get_epoch_cosine_schedule_with_warmup(optimizer, warmup_epochs, total_epochs
     return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
 
 
-if __name__ == '__main__':
+def main(args,config, docker_prefix = "../../../mnt/localstorage/cdeangelis/", root_2a = "./BciCompetitionIv2a/Train", root_2b = "./BciCompetitionIv2b"):
     print(device)
 
-    docker_prefix = "../../../mnt/localstorage/cdeangelis/"
-    torch.autograd.set_detect_anomaly(True)
 
     seed_n = 2025
     print('seed is ' + str(seed_n))
@@ -188,10 +186,6 @@ if __name__ == '__main__':
     torch.cuda.manual_seed(seed_n)
     torch.cuda.manual_seed_all(seed_n)
 
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--config', type=str, default='configs/single_config_16_2_2.yaml')
-    args = parser.parse_args()
-    config = load_config(args.config)
     total_test_acc = []
 
     EPOCHS = config["train"]["epochs"]
@@ -232,7 +226,7 @@ if __name__ == '__main__':
     if config["run"]["dataset"] == "2a" or config["run"]["dataset"] == "2b":
         train_subjects = [f"A0{i+1}" for i in range(9)]
         train_datasets = [
-            prepare_dataloaders(subject_id=subj, augment=config["run"]["augment"], filter=config["train"]["filter"], BCI = config["run"]["dataset"])[0]
+            prepare_dataloaders(subject_id=subj, augment=config["run"]["augment"], filter=config["train"]["filter"], BCI = config["run"]["dataset"], root=root_2a, root_2b=root_2b)[0]
             for subj in train_subjects
         ]
 
@@ -378,3 +372,12 @@ if __name__ == '__main__':
     append_to_log_file("total.txt", txt)
     config_csv(config, mean_accuracy=str(np.mean(total_test_acc)))
     subject_csv(total_test_acc, testname=config["info"]["test_name"])
+
+    if __name__ == '__main__':
+        parser = argparse.ArgumentParser()
+        parser.add_argument('--config', type=str, default='configs/single_config_16_2_2.yaml')
+        args = parser.parse_args()
+        config = load_config(args.config)
+        root_2a = "../Python/BciCompetitionIv2a/Train"
+        root_2b = "../Python/BciCompetitionIv2b"
+        main(args,config, docker_prefix="../", root_2a=root_2a, root_2b = root_2b)
