@@ -6,7 +6,6 @@ from timm.models import create_model
 import torch.nn.functional as F
 
 
-
 class PatchEmbedding(nn.Module):
     def __init__(self, img_height=224, img_width = 224,patch_size=16, in_channels=3, embed_dim=768, withconv = True, patch_width = 16):
         super().__init__()
