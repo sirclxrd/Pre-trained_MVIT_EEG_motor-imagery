@@ -154,40 +154,63 @@ def extract_tsne(model, loader, subj, path):
 
 
 
-def plot_loss_and_accuracy(checkpoint, subject, save_path, val_interval=5):
+def plot_loss_and_accuracy(checkpoint, subject, save_path, val_interval=5, skip=2):
     train_loss = checkpoint['epoch_loss']
     train_acc = checkpoint['epoch_acc']
     val_loss = checkpoint['epoch_val_loss']
     val_acc = checkpoint['epoch_val_acc']
 
     epochs = list(range(1, len(train_loss) + 1))
-
     val_epochs = [0] + list(range(val_interval, val_interval * len(val_loss) + 1, val_interval))
     val_loss = [val_loss[0]] + val_loss
     val_acc = [val_acc[0]] + val_acc
 
-    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+    # Salta alcune epoche per maggiore chiarezza
+    epochs_s = epochs[::skip]
+    train_loss_s = train_loss[::skip]
+    train_acc_s = train_acc[::skip]
 
-    # --- LOSS ---
-    axes[0].plot(epochs, train_loss, label='Train Loss', color='blue')
-    axes[0].plot(val_epochs, val_loss, label='Val Loss', color='orange')
-    axes[0].set_title(f"Loss - {subject}")
-    axes[0].set_xlabel("Epoch")
-    axes[0].set_ylabel("Loss")
-    axes[0].legend()
-    axes[0].grid(True, linestyle='--', alpha=0.6)
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
 
-    # --- ACCURACY ---
-    axes[1].plot(epochs, train_acc, label='Train Accuracy', color='blue')
-    axes[1].plot(val_epochs, val_acc, label='Val Accuracy', color='orange')
-    axes[1].set_title(f"Accuracy - {subject}")
-    axes[1].set_xlabel("Epoch")
-    axes[1].set_ylabel("Accuracy")
-    axes[1].legend()
-    axes[1].grid(True, linestyle='--', alpha=0.6)
+    # --- 1. Train Loss (ingrandito) ---
+    axes[0, 0].plot(epochs_s, train_loss_s, color='blue', label='Train Loss', linewidth=2.5)
+    axes[0, 0].set_title("Train Loss", fontsize=20)
+    axes[0, 0].set_xlabel("Epoch", fontsize=20)
+    axes[0, 0].set_ylabel("Loss", fontsize=20)
+    axes[0, 0].tick_params(axis='both', labelsize=20)
+    axes[0, 0].grid(True, linestyle='--', alpha=0.6)
+    axes[0, 0].legend(fontsize=12)
+
+    # --- 2. Validation Loss ---
+    axes[0, 1].plot(val_epochs, val_loss, color='orange', label='Validation Loss', linewidth=2)
+    axes[0, 1].set_title("Validation Loss", fontsize=20)
+    axes[0, 1].set_xlabel("Epoch", fontsize=20)
+    axes[0, 1].set_ylabel("Loss", fontsize=20)
+    axes[0, 1].tick_params(axis='both', labelsize=20)
+    axes[0, 1].grid(True, linestyle='--', alpha=0.6)
+    axes[0, 1].legend(fontsize=11)
+
+    # --- 3. Train Accuracy ---
+    axes[1, 0].plot(epochs_s, train_acc_s, color='blue', label='Train Accuracy', linewidth=2)
+    axes[1, 0].set_title("Train Accuracy", fontsize=20)
+    axes[1, 0].set_xlabel("Epoch", fontsize=20)
+    axes[1, 0].set_ylabel("Accuracy", fontsize=20)
+    axes[1, 0].tick_params(axis='both', labelsize=20)
+    axes[1, 0].grid(True, linestyle='--', alpha=0.6)
+    axes[1, 0].legend(fontsize=11)
+
+    # --- 4. Validation Accuracy ---
+    axes[1, 1].plot(val_epochs, val_acc, color='orange', label='Validation Accuracy', linewidth=2)
+    axes[1, 1].set_title("Validation Accuracy", fontsize=20)
+    axes[1, 1].set_xlabel("Epoch", fontsize=20)
+    axes[1, 1].set_ylabel("Accuracy", fontsize=20)
+    axes[1, 1].tick_params(axis='both', labelsize=20)
+    axes[1, 1].grid(True, linestyle='--', alpha=0.6)
+    axes[1, 1].legend(fontsize=11)
 
     plt.tight_layout()
-    fig.savefig(os.path.join(save_path, f"loss_accuracy_{subject}.png"), dpi=300, bbox_inches='tight')
+    save_file = os.path.join(save_path, f"loss_accuracy_4_{subject}.png")
+    fig.savefig(save_file, dpi=300, bbox_inches='tight')
     plt.close(fig)
 
 
@@ -258,9 +281,11 @@ def main(args, config, docker_prefix="../", root_2a="../", root_2b="../"):
     plt.figure(figsize=(10, 5))
     plt.bar(subjects, s_accuracy)
     plt.ylim(0, 1)
-    plt.ylabel("Accuracy")
-    plt.xlabel("Subject")
-    plt.title("Accuracy per Subject")
+    plt.ylabel("Accuracy", fontsize=14)
+    plt.xlabel("Subject", fontsize=14)
+    plt.title("Accuracy per Subject", fontsize=16)
+    plt.xticks(fontsize=12)
+    plt.yticks(fontsize=12)
     plt.grid(axis='y', linestyle='--', alpha=0.7)
     plt.savefig(graphs_path + "/accuracy_barplot.png", dpi=300, bbox_inches='tight')
     plt.close()
