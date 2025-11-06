@@ -255,7 +255,7 @@ def main(args, config, docker_prefix="../", root_2a="../", root_2b="../"):
         print("Train loss=", checkpoint['loss'])
 
         # Plot Loss + Accuracy
-        # plot_loss_and_accuracy(checkpoint, subject_test, graphs_path)
+        plot_loss_and_accuracy(checkpoint, subject_test, graphs_path)
 
         avg_loss, avg_acc, all_preds, all_labels, kappa = test_model(model, test_loader, criterion)
 
