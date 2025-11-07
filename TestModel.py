@@ -144,24 +144,35 @@ def extract_tsne(model, loader, subj, path):
     model.eval()
     features = []
     labels = []
+
     with torch.no_grad():
         for x, y in loader:
             x = x.to("cuda")
-            out, feat = model(x)
+            out, _, feat = model(x, True)
             features.append(feat.cpu())
             labels.append(y)
+
     features = torch.cat(features).numpy()
     labels = torch.cat(labels).squeeze().numpy()
+
+    # PCA e t-SNE
     pca = PCA(n_components=50, random_state=42)
     features_pca = pca.fit_transform(features)
     tsne = TSNE(n_components=2, perplexity=30, learning_rate=200, random_state=42)
     features_2d = tsne.fit_transform(features_pca)
+
+    # Plot
     plt.figure(figsize=(8, 6))
     for c in np.unique(labels):
         idx = labels == c
-        plt.scatter(features_2d[idx, 0], features_2d[idx, 1], label=f"Class {c}", alpha=0.7)
-    plt.legend()
-    plt.title("t-SNE")
+        plt.scatter(features_2d[idx, 0], features_2d[idx, 1], label=f"Class {c}", alpha=0.7, s=60)
+
+    plt.legend(fontsize=20)
+    plt.title(f"Subj {subj[2]} t-SNE", fontsize=20)
+    plt.xlabel("Component 2", fontsize=20)
+    plt.ylabel("Component 1", fontsize=20)
+    plt.tick_params(labelsize=20)
+
     plt.savefig(f"{path}/tsne_features_{subj}.png", dpi=300, bbox_inches='tight')
     plt.close()
 
@@ -175,8 +186,9 @@ def plot_loss_and_accuracy(checkpoint, subject, save_path, val_interval=5, skip=
 
     epochs = list(range(1, len(train_loss) + 1))
     val_epochs = [0] + list(range(val_interval, val_interval * len(val_loss) + 1, val_interval))
-    val_loss = [val_loss[0]] + val_loss
-    val_acc = [val_acc[0]] + val_acc
+    val_loss = [val_loss[0]] + val_loss if val_loss else [0.0]
+    #val_acc = [val_acc[0]] + val_acc
+    val_acc = [val_acc[0]] + val_acc if val_acc else [0.0]
 
     # Salta alcune epoche per maggiore chiarezza
     epochs_s = epochs[::skip]
@@ -281,7 +293,7 @@ def main(args, config, docker_prefix="../", root_2a="../", root_2b="../"):
         append_to_log_file(log_path, txt)
 
         cm = confusion_matrix(all_labels, all_preds)
-        plot_confusion_matrix(cm, graphs_path+"/cm_"+subject_test)
+        plot_confusion_matrix(cm, graphs_path+"/cm_"+subject_test, subject=subject_test[2])
         extract_tsne(model, test_loader, subject_test, graphs_path)
 
         s_accuracy.append(avg_acc)
@@ -299,11 +311,11 @@ def main(args, config, docker_prefix="../", root_2a="../", root_2b="../"):
     plt.figure(figsize=(10, 5))
     plt.bar(subjects, s_accuracy)
     plt.ylim(0, 1)
-    plt.ylabel("Accuracy", fontsize=14)
-    plt.xlabel("Subject", fontsize=14)
-    plt.title("Accuracy per Subject", fontsize=16)
-    plt.xticks(fontsize=12)
-    plt.yticks(fontsize=12)
+    plt.ylabel("Accuracy", fontsize=20)
+    plt.xlabel("Subject", fontsize=20)
+    plt.title("Accuracy per Subject", fontsize=20)
+    plt.xticks(fontsize=20)
+    plt.yticks(fontsize=20)
     plt.grid(axis='y', linestyle='--', alpha=0.7)
     plt.savefig(graphs_path + "/accuracy_barplot.png", dpi=300, bbox_inches='tight')
     plt.close()

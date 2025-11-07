@@ -196,18 +196,20 @@ def subject_csv(acc_list, csv_path="logfile_subjects.csv",testname="Test1"):
         row = [testname] + acc_list
         writer.writerow(row)
 
-def plot_confusion_matrix(cm, save_path):
+def plot_confusion_matrix(cm, save_path, subject=None):
     plt.figure(figsize=(6, 4))
     fmt = '.2f' if np.issubdtype(cm.dtype, np.floating) else 'd'
     
-    # annot_kws permette di cambiare la dimensione del font dei numeri
-    sns.heatmap(cm, annot=True, fmt=fmt, cmap='Blues', annot_kws={"size": 16})
+    sns.heatmap(cm, annot=True, fmt=fmt, cmap='Blues', annot_kws={"size": 28})
     
-    plt.xlabel("Predicted", fontsize=14)
-    plt.ylabel("True", fontsize=14)
-    plt.title("Confusion Matrix", fontsize=16)
-    plt.xticks(fontsize=12)
-    plt.yticks(fontsize=12)
+    plt.xlabel("Predicted", fontsize=20)
+    plt.ylabel("True", fontsize=20)
+    if subject is not None:
+        plt.title(f"Subj {subject} Confusion Matrix", fontsize=20)
+    else:
+        plt.title("Confusion Matrix", fontsize=20)
+    plt.xticks(fontsize=20)
+    plt.yticks(fontsize=20)
     plt.tight_layout()
     plt.savefig(save_path, dpi=300)
     plt.close()
