@@ -162,19 +162,32 @@ def extract_tsne(model, loader, subj, path):
     features_2d = tsne.fit_transform(features_pca)
 
     # Plot
-    plt.figure(figsize=(8, 6))
+    plt.figure(figsize=(12, 10))  # <-- ingrandisce la parte dei punti
     for c in np.unique(labels):
         idx = labels == c
-        plt.scatter(features_2d[idx, 0], features_2d[idx, 1], label=f"Class {c}", alpha=0.7, s=60)
+        plt.scatter(features_2d[idx, 0], features_2d[idx, 1],
+                    alpha=0.7, s=120)  # <-- punti più grandi
 
-    plt.legend(fontsize=20)
-    plt.title(f"Subj {subj[2]} t-SNE", fontsize=20)
-    plt.xlabel("Component 2", fontsize=20)
-    plt.ylabel("Component 1", fontsize=20)
-    plt.tick_params(labelsize=20)
+    # Nessuna legenda
+    # plt.legend(fontsize=18)
 
+    plt.title(f"Subj {subj[2]} t-SNE", fontsize=35)
+    plt.xlabel("Component 1", fontsize=26)
+    plt.ylabel("Component 2", fontsize=26)
+
+    # Riduci il numero di ticks e rendili grandi e leggibili
+    plt.locator_params(axis='x', nbins=5)
+    plt.locator_params(axis='y', nbins=5)
+    plt.tick_params(axis='both', which='major',
+                    labelsize=40,
+                    width=2,
+                    length=8)
+
+    plt.grid(alpha=0.3, linestyle='--')
+    plt.tight_layout()
     plt.savefig(f"{path}/tsne_features_{subj}.png", dpi=300, bbox_inches='tight')
     plt.close()
+
 
 
 
