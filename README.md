@@ -1,0 +1,1 @@
+Hi all! This repository contains my project where I implemented a multi-channel vision transformer for motor imagery prediction on the BCI Competition IV 2a dataset. By using self-supervised pre-training on EEG signal spectrograms, I obtained impressive results. The complete version will be available soon!
