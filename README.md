@@ -1,3 +1,5 @@
+# Multi-Channel Vision Transformer for EEG Motor Imagery
+
 Hi all!  
 This repository contains my thesis project, where I developed a multi-channel Vision Transformer for motor imagery prediction using the BCI Competition IV 2a and 2b datasets.
 
